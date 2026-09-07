@@ -63,6 +63,22 @@ The rule for this file: **a value belongs here when a second store has no reason
 | `MAGENTO_FPC_APPLICATION` | The full-page cache backend. Varnish |
 | `MAGENTO_FPC_TTL` | How long Varnish keeps a page |
 | `MAGENTO_INSTALL_DATE` | **Fixed on purpose.** Magento mixes this into cache identifiers, so a per-container value means two replicas never share a cache entry and the storefront looks intermittently uncached |
+| `MAGENTO_SMTP_TRANSPORT` | How Magento sends mail. `smtp` |
+| `MAGENTO_SMTP_HOST` | The mail sink. `mailhog`, which is the service name in both runtimes |
+| `MAGENTO_SMTP_PORT` | `1025` |
+| `MAGENTO_SMTP_AUTH` | `none`, because the sink accepts anything |
+
+### Mail
+
+Every store gets a mail sink, and Magento is pointed at it here rather than in the database, for the same reason as the base URL: the mail host only exists inside the runtime.
+
+**This is not optional wiring.** Magento's default transport is `sendmail`, and the image has no `sendmail` binary — so without these four variables *every* message fails. It is easy to miss for a long time, because the first thing most people notice is being unable to finish two-factor setup on a fresh admin account, and the error says only:
+
+> Failed to send the message. Please contact the administrator
+
+which names neither the transport nor the missing binary.
+
+Read what was sent at `https://mail.<your-site>/` on Compose, or `make port-forward-mailhog` on the cluster.
 
 ### `MAGENTO_CACHE_TYPES`
 

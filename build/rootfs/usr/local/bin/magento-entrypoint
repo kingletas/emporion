@@ -108,6 +108,18 @@ require MAGENTO_CRYPT_KEY
 # Cache types to enable. See the note beside it in the shared env file: an
 # unlisted type is DISABLED, and an empty list disables every cache in Magento.
 : "${MAGENTO_CACHE_TYPES:=}"
+# Where mail goes. Magento's default transport is sendmail, and this image has
+# no sendmail binary -- so without these EVERY message fails, including the
+# two-factor setup mail that a fresh admin account cannot get past. The failure
+# surfaces as "Failed to send the message. Please contact the administrator",
+# which names neither the transport nor the missing binary.
+#
+# `mailhog` is the service name in both runtimes: the Compose service and the
+# cluster's Service object are both called that, so one default serves both.
+: "${MAGENTO_SMTP_TRANSPORT:=smtp}"
+: "${MAGENTO_SMTP_HOST:=mailhog}"
+: "${MAGENTO_SMTP_PORT:=1025}"
+: "${MAGENTO_SMTP_AUTH:=none}"
 
 mkdir -p "$(dirname "$ENV_PHP")"
 
@@ -297,6 +309,25 @@ ${consumers_php}        ],
                 'full_page_cache' => [
                     'caching_application' => '${MAGENTO_FPC_APPLICATION}',
                     'ttl' => '${MAGENTO_FPC_TTL}',
+                ],
+                /*
+                 * Mail. Declared here rather than left to core_config_data for
+                 * the same reason as base_url above: the mail host only exists
+                 * inside the runtime, so whichever runtime is up is the one that
+                 * gets to say where mail goes, and a database restored from the
+                 * other runtime does not carry a stale opinion about it.
+                 *
+                 * Without this Magento falls back to sendmail, which this image
+                 * does not have, and every email fails silently enough that the
+                 * first thing anyone notices is being locked out of the admin by
+                 * two-factor setup.
+                 */
+                'smtp' => [
+                    'disable' => 0,
+                    'transport' => '${MAGENTO_SMTP_TRANSPORT}',
+                    'host' => '${MAGENTO_SMTP_HOST}',
+                    'port' => '${MAGENTO_SMTP_PORT}',
+                    'auth' => '${MAGENTO_SMTP_AUTH}',
                 ],
             ],
             'catalog' => [

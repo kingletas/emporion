@@ -2,6 +2,14 @@
 
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Magento could not send mail at all.** Both runtimes ship a MailHog sink and nothing pointed Magento at it, so it fell back to its default `sendmail` transport — which the image does not have. Every message failed. The entrypoint now writes `system/smtp` into `env.php` alongside the base URL, defaulting to `mailhog:1025`, which is the service name in both runtimes.
+
+  It stayed hidden because a store works fine until something tries to email. The first symptom is usually a fresh admin account that cannot complete two-factor setup, reporting only *"Failed to send the message. Please contact the administrator"*.
+
 ## [0.1.0]: 2026-09-07
 
 First public release, under the name **Emporion**.
