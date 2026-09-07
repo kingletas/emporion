@@ -28,8 +28,8 @@ make destroy-site second.test
 > [!abstract] The shape, in one line each
 > **A site is a hostname, a small config file, a set of credentials and its own application tier.** It shares the image, the Magento tree and — by default — one data tier. **Only Compose runs more than one**; the cluster binds `127.0.0.1:80` and serves one store at a time, which it always did.
 
-> [!info] What this is for, and what it is not
-> **The point is standing a store up on demand and switching between stores cheaply — not running a fleet.** This is one workstation with an editor and a browser on it, not a datacenter, and nothing here is capacity planning. Two stores can be up at once because that is cheaper than tearing one down and rebuilding it, and because a parked store costs almost nothing; that is convenience, not a target to fill.
+> [!info] What this is for, and what it isn't
+> **The point is standing a store up on demand and switching between stores cheaply — not running a fleet.** This is one workstation with an editor and a browser on it, not a datacenter, and nothing here is capacity planning. Two stores can be up at once because that's cheaper than tearing one down and rebuilding it, and because a parked store costs almost nothing; that's convenience, not a target to fill.
 >
 > The numbers below exist to justify **why a second store is affordable at all** and to set the one bound that matters. They are not a budget to spend.
 
@@ -53,7 +53,7 @@ One installed store, idle, with sample data loaded, measured with `docker stats`
 | Both doing background work | 4.68 GiB | `██████████░░░░░░░░░░` |
 | A full stack each | 6.44 GiB | `████░░░░░░░░░░░░░░░░` |
 
-**Read the first row as the intended state.** A second store is something you stand up when you need one and destroy when you are done, and the rows below it are what that costs while it is there.
+**Read the first row as the intended state.** A second store is something you stand up when you need one and destroy when you're done, and the rows below it are what that costs while it's there.
 
 > [!warning] Idle is not the risk, and a memory table hides that
 > Per site the declared ceilings are `php-cron` 4g + `magento-cron` 4g + six consumers at 1g — **14 GiB of ceiling for one store**. A single site can already overcommit this laptop. So what has to be bounded is **how many sites do background work, not how many exist**, and neither the table above nor any idle measurement licenses concurrency. Running the cluster beside a Compose stack once took this host to a load average of 300.
@@ -64,7 +64,7 @@ One installed store, idle, with sample data loaded, measured with `docker stats`
 > make use SITE=second.test
 > ```
 >
-> **And `new-site` refuses rather than warning** when the projection does not fit — the same idiom as the one-runtime-at-a-time guard, with `ALLOW_TIGHT=1` to override and a reason printed for why you should not.
+> **And `new-site` refuses rather than warning** when the projection doesn't fit — the same idiom as the one-runtime-at-a-time guard, with `ALLOW_TIGHT=1` to override and a reason printed for why you should not.
 
 ### The two modes
 
@@ -72,7 +72,7 @@ One installed store, idle, with sample data loaded, measured with `docker stats`
 make new-site SITE=second.test MODE=exclusive
 ```
 
-**They differ only in which data project the site attaches to**, which is why there is one code path rather than two:
+**They differ only in which data project the site attaches to**, which is why there's one code path rather than two:
 
 | | `shared` (default) | `exclusive` |
 |---|---|---|
@@ -116,20 +116,20 @@ make new-site SITE=second.test SEED=none
 >
 > **It is made visible rather than implicit**: the plan says which store the key came from, the site's config records it as `SITE_CRYPT_ORIGIN`, and `make sites` prints every site's fingerprint so two stores sharing a key is something you can see. `SEED=none` generates its own.
 
-> [!info] A site is machine state, and git does not track it
+> [!info] A site is machine state, and git doesn't track it
 > `k8s/base/config/env/sites/<slug>.env` is **gitignored**, with one exception. Creating a store writes one and destroying it removes one, so tracking them would turn *"I needed a scratch store for an afternoon"* into two commits about a store nobody else has — which is exactly what happened the first time `second.test` was created and destroyed.
 >
 > **Nothing is lost by that.** The file is derived from the hostname by `scripts/site.sh`, and `make new-site` writes an equivalent one. What is not recoverable is the store's *data*, which was never in git either.
 >
-> **The exception is `vanilla-test.env`, and it is mechanical rather than sentimental**: `k8s/base/kustomization.yaml` names that exact path in its `configMapGenerator`, so without it a fresh clone cannot render either overlay and `make lint` fails on a checkout that has done nothing wrong. It is also the worked example every generated one is read against.
+> **The exception is `vanilla-test.env`, and it is mechanical rather than sentimental**: `k8s/base/kustomization.yaml` names that exact path in its `configMapGenerator`, so without it a fresh clone cannot render either overlay and `make lint` fails on a checkout that has done nothing wrong. It's also the worked example every generated one is read against.
 >
 > Which stores exist is a fact about this laptop, so `make sites` reads the filesystem for the list and `docker ps` for the state — a config file existing is not a claim that the store does.
 
 ### What is not built
 
-- **The cluster serves one site at a time.** `make deploy SITE=second.test` points it at another store by generating a small overlay over the chosen one — the site's env file merged into the ConfigMap, and the ingress host and TLS secret rewritten. There is no second port for a second hostname, and pretending otherwise would be a claim the runtime cannot keep.
+- **The cluster serves one site at a time.** `make deploy SITE=second.test` points it at another store by generating a small overlay over the chosen one — the site's env file merged into the ConfigMap, and the ingress host and TLS secret rewritten. There's no second port for a second hostname, and pretending otherwise would be a claim the runtime cannot keep.
 - **The shared Valkey caps a data tier at eight sites**, because a site takes two of its sixteen databases. `site.sh` allocates them from what the config files already use and refuses when they run out, rather than wrapping.
-- **The eviction pool is shared.** A busy store can evict a quiet one's cache entries. That is correct for a reconstructible cache and a real difference from a private Valkey; it is stated rather than left to be found.
+- **The eviction pool is shared.** A busy store can evict a quiet one's cache entries. That's correct for a reconstructible cache and a real difference from a private Valkey; it's stated rather than left to be found.
 - **Nothing here bounds CPU.** The memory guard is a memory guard.
 
 ---
@@ -153,7 +153,9 @@ make snapshots
 
 **Restoring by hand is the second use for a snapshot; the first is `make new-site`**, which seeds a brand-new store from one and inherits its crypt key so the fingerprint check has nothing to warn about. → [More than one store](sites.md).
 
-**A snapshot is two files, because a store is two things: the database and `pub/media`.** Sample data ships its images inside the vendor packages and `setup:upgrade` copies them into `pub/media` on first install — so a database restored into a fresh store finds every product already installed, never re-copies the images, and renders a catalogue of broken thumbnails. **Capturing the database alone looks complete and is not.** `-d` skips the media half when that is genuinely what you want, and `snapshot-restore` says so plainly when a snapshot has no media beside it.
+**A snapshot is two files, because a store is two things: the database and `pub/media`.** Sample data ships its images inside the vendor packages and `setup:upgrade` copies them into `pub/media` on first install — so a database restored into a fresh store finds every product already installed, never re-copies the images, and renders a catalogue of broken thumbnails.
+
+**Capturing the database alone looks complete and is not.** `-d` skips the media half when that's genuinely what you want, and `snapshot-restore` says so plainly when a snapshot has no media beside it.
 
 **It is a logical dump, and that is the point.** A physical copy is tied to the MariaDB version, page size and configuration that produced it; a logical one restores into any MariaDB that can parse SQL — which is what seeding a *different* store means. It also works against whichever runtime is up, so a snapshot taken from Compose restores into the cluster.
 
@@ -161,9 +163,9 @@ make snapshots
 
 **Each snapshot carries a small `.json` beside it** naming the Magento version, the product count, the base URL at capture, and a **fingerprint of the crypt key** — never the key itself. `snapshot-restore` compares that fingerprint and warns when it differs, because values Magento encrypted under another key come back as unreadable rows rather than as an error. Catalogue and customer data are unaffected; payment credentials and API keys in `core_config_data` are not.
 
-**The restore drops and recreates the database rather than loading over it.** A dump loaded on top of an existing schema leaves behind every table it does not mention, which is how a "restored" store ends up with rows from two installs.
+**The restore drops and recreates the database rather than loading over it.** A dump loaded on top of an existing schema leaves behind every table it doesn't mention, which is how a "restored" store ends up with rows from two installs.
 
 > [!warning] Snapshots are a convenience, not a safeguard
-> `SNAPSHOT_DIR` defaults to a `snapshots/` directory beside this repository, and it is not in git — a multi-hundred-megabyte dump does not belong in one. Whether it is backed up is a question about your machine, and the answer is usually no. **A snapshot saves an afternoon. It does not protect anything.**
+> `SNAPSHOT_DIR` defaults to a `snapshots/` directory beside this repository, and it isn't in git — a multi-hundred-megabyte dump doesn't belong in one. Whether it's backed up is a question about your machine, and the answer is usually no. **A snapshot saves an afternoon. It does not protect anything.**
 
 ---

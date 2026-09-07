@@ -24,7 +24,7 @@ Every setting here lives in one of four places, and which one it lives in is a d
 
 These describe your machine. Set them in your shell, or accept the defaults.
 
-| Variable | Default | What it is |
+| Variable | Default | What it's |
 |---|---|---|
 | `MAGENTO_SRC` | `../commerce-vanilla` | The Magento tree to build and run. The one setting most people change |
 | `CERTS_HOME` | `certs/` in the repository | Where `<host>.crt` and `<host>.key` are found. Gitignored |
@@ -34,8 +34,8 @@ These describe your machine. Set them in your shell, or accept the defaults.
 | `CLUSTER_NAME` | `vanilla` | The kind cluster's name |
 | `NAMESPACE` | `vanilla` | The Kubernetes namespace |
 | `OVERLAY` | `dev` | Which cluster overlay to render — `dev` or `prod-shaped` |
-| `DEV_CERT_TOOL` | `dev-vhost-cert` | A local wrapper around mkcert, if you have one. Plain `mkcert` is used when it is absent |
-| `ALLOW_BOTH` | unset | Set to `1` to run both runtimes at once. There is no good reason to |
+| `DEV_CERT_TOOL` | `dev-vhost-cert` | A local wrapper around mkcert, if you've one. Plain `mkcert` is used when it's absent |
+| `ALLOW_BOTH` | unset | Set to `1` to run both runtimes at once. There's no good reason to |
 | `ALLOW_TIGHT` | unset | Set to `1` to create a store the memory check refuses |
 | `YES` | unset | Set to `1` to skip confirmation prompts, for unattended use |
 
@@ -68,22 +68,22 @@ The rule for this file: **a value belongs here when a second store has no reason
 
 The list of Magento caches to enable. **It is authoritative and fails closed: a type not in the list is disabled**, and an empty value disables every cache.
 
-Modules add cache types, so this list can fall behind. The installer checks it both ways and says so: a type Magento has that the list is missing would be silently switched off, and a type in the list that Magento does not have is harmless but stale.
+Modules add cache types, so this list can fall behind. The installer checks it both ways and says so: a type Magento has that the list is missing would be silently switched off, and a type in the list that Magento doesn't have is harmless but stale.
 
 > [!NOTE]
-> Three entries — `admin_ui_sdk`, `target_rule` and `webhooks_response` — exist only in Adobe Commerce. On Magento Open Source the installer reports them as stale and carries on. That is expected, not a misconfiguration.
+> Three entries — `admin_ui_sdk`, `target_rule` and `webhooks_response` — exist only in Adobe Commerce. On Magento Open Source the installer reports them as stale and carries on. That's expected, not a misconfiguration.
 
 ### Install settings
 
 `MAGENTO_ADMIN_USER`, `MAGENTO_ADMIN_EMAIL`, `MAGENTO_ADMIN_FIRSTNAME`, `MAGENTO_ADMIN_LASTNAME`, `MAGENTO_LANGUAGE`, `MAGENTO_CURRENCY`, `MAGENTO_TIMEZONE`.
 
-Read on a first install only. **The admin password is not here** — it is generated into `secrets/` like every other credential.
+Read on a first install only. **The admin password is not here** — it's generated into `secrets/` like every other credential.
 
 ### `MAGENTO_CONSUMERS`
 
 The queue consumers to run. **Core Magento only, on purpose** — a queue belonging to one store's modules is not infrastructure, and adding one here would make this file specific to a single installation. Add site-specific consumers through the per-store file and an overlay.
 
-This list and the Deployments in `k8s/base/jobs/consumers.yaml` must agree, and the mismatch is invisible in both directions: a consumer that is not named never runs, and nothing reports it. `make verify-consumers` compares three sets — the list, the cluster Deployments and the Compose services.
+This list and the Deployments in `k8s/base/jobs/consumers.yaml` must agree, and the mismatch is invisible in both directions: a consumer that's not named never runs, and nothing reports it. `make verify-consumers` compares three sets — the list, the cluster Deployments and the Compose services.
 
 ## The per-store file
 
@@ -112,7 +112,7 @@ This list and the Deployments in `k8s/base/jobs/consumers.yaml` must agree, and 
 
 The rest of the file:
 
-| Key | What it is |
+| Key | What it's |
 |---|---|
 | `SITE_HOST` | the hostname. Everything else is derived from it |
 | `MAGENTO_BASE_URL` | the store's base URL |
@@ -124,7 +124,7 @@ The rest of the file:
 | `SITE_MAGENTO_SRC` | overrides `MAGENTO_SRC` for this store. Empty means the shared tree |
 | `SITE_CRYPT_ORIGIN` | which store's encryption key this one inherited, if it was seeded |
 
-> [!INFO] These files are machine state and git does not track them
+> [!INFO] These files are machine state and git doesn't track them
 > Creating a store writes one and destroying it removes one, so tracking them would turn *"I needed a scratch store for an afternoon"* into two commits about a store nobody else has. `make sites` reads the filesystem for the list.
 >
 > **One exception:** `vanilla-test.env` is tracked, because `k8s/base/kustomization.yaml` names that exact path. Without it a fresh clone cannot render either overlay and `make lint` fails on a checkout that has done nothing wrong.
@@ -133,7 +133,7 @@ The rest of the file:
 
 Passed on the command line: `make new-site SITE=second.test MODE=exclusive`.
 
-| Variable | Default | What it is |
+| Variable | Default | What it's |
 |---|---|---|
 | `SITE` | `vanilla.test` | The store to act on. Every store command takes it |
 | `MODE` | `shared` | `shared` or `exclusive`, for `new-site` |

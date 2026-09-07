@@ -13,9 +13,9 @@ date: 2026-08-27
 
 This repository was a Kubernetes deployment and nothing else. Running the store meant creating a kind cluster, loading an image into it, applying an overlay and waiting — several minutes, plus `kind` and `kubectl` installed, before a storefront answers. That cost is worth paying for the questions a cluster is uniquely good at asking: what happens when a pod is replaced, whether a claim binds, whether a probe is measuring the thing it claims to measure, whether a rollout is safe.
 
-It is not worth paying to look at a page.
+It isn't worth paying to look at a page.
 
-Adding a Compose stack is the obvious answer and it carries an equally obvious risk: **two environments that drift**. That is the failure the Magento estate already knows well — an environment that behaves one way locally and another way in the thing it is supposed to resemble, with nothing anywhere saying which is right. Two runtimes with two images, two configuration files and two sets of credentials would be a worse position than one runtime and a slow feedback loop.
+Adding a Compose stack is the obvious answer and it carries an equally obvious risk: **two environments that drift**. That's the failure the Magento estate already knows well — an environment that behaves one way locally and another way in the thing it's supposed to resemble, with nothing anywhere saying which is right. Two runtimes with two images, two configuration files and two sets of credentials would be a worse position than one runtime and a slow feedback loop.
 
 ## Decision
 
@@ -34,7 +34,7 @@ Four things have exactly one copy, and each is a place the two could otherwise d
 
 **The Compose stack is prod-shaped, not a third mode.** Read-only root filesystems, all capabilities dropped, no source bind-mount, code in the image. There are already two modes — `dev` and `prod-shaped` — and the interesting comparison is between *those*. A Compose stack that mounted source would have made three, with the third being a duplicate of the first.
 
-**They never run together, and both `up` paths refuse.** `cluster-up.sh` checks for containers carrying the Compose project label; `compose-up.sh` checks for the kind cluster. Two MariaDB instances, two OpenSearch JVMs and two PHP pools each allowed 4 GiB do not fit on a 31 GB laptop that is also running an editor and a browser, and the way that failure presents is a load average in the hundreds with swap exhausted.
+**They never run together, and both `up` paths refuse.** `cluster-up.sh` checks for containers carrying the Compose project label; `compose-up.sh` checks for the kind cluster. Two MariaDB instances, two OpenSearch JVMs and two PHP pools each allowed 4 GiB don't fit on a 31 GB laptop that's also running an editor and a browser, and the way that failure presents is a load average in the hundreds with swap exhausted.
 
 **The guard checks the compose project LABEL, not a container-name prefix.** A name prefix misses a container started with `--name` and catches unrelated containers that happen to begin with the same word.
 
@@ -56,18 +56,18 @@ Four things have exactly one copy, and each is a place the two could otherwise d
 
 **Advantages** — Each runtime tuned freely for itself. No shared file constrains either.
 
-**Disadvantages** — This is the drift failure, adopted deliberately. The first divergence is always defensible and the tenth is a second environment nobody trusts. Rejected outright; the sharing above is not an optimisation, it is the point.
+**Disadvantages** — This is the drift failure, adopted deliberately. The first divergence is always defensible and the tenth is a second environment nobody trusts. Rejected outright; the sharing above is not an optimisation, it's the point.
 
 ## Consequences
 
-- **A change to a shared file changes both runtimes.** That is the intent, and it means the blast radius of editing `common.env` or the VCL is larger than it looks. `make lint` renders both.
+- **A change to a shared file changes both runtimes.** That's the intent, and it means the blast radius of editing `common.env` or the VCL is larger than it looks. `make lint` renders both.
 - **`verify-consumers` now compares three sets**, not two: the declared list, the cluster Deployments, and the Compose services. A queue present in two of the three is the silent failure it always was, with one more place to go missing.
 - **One VCL means one purge ACL for two IP ranges** — the kind pod CIDR and the Docker bridge range. A purge refused by the ACL shows up as a storefront that never updates and as nothing else.
-- **Compose has no scheduler**, so `magento-cron` is a `cron:run` loop in a container where the cluster has two `CronJob` objects, one per group. This is the one place the two runtimes genuinely differ in shape rather than in configuration, and it is a difference in the runtime rather than in the application — which is exactly the kind this design is meant to expose.
+- **Compose has no scheduler**, so `magento-cron` is a `cron:run` loop in a container where the cluster has two `CronJob` objects, one per group. This is the one place the two runtimes genuinely differ in shape rather than in configuration, and it's a difference in the runtime rather than in the application — which is exactly the kind this design is meant to expose.
 - **The edges differ and the hostname does not.** Compose reaches `vanilla.test` through the shared `nginx-proxy` on `172.17.0.1` and publishes no port; the cluster binds `127.0.0.1:80` and takes the name with one `/etc/hosts` line. Switching is a one-line change, which is what makes refusing to run both an easy rule to keep.
 
 ## Related
 
 - [ADR-005](ADR-005-varnish-stays-in-the-chain.md) — the edge both runtimes share
-- [ADR-007](ADR-007-dev-overlay-mounted-source.md) — the other mode split, and the one this deliberately does not add to
+- [ADR-007](ADR-007-dev-overlay-mounted-source.md) — the other mode split, and the one this deliberately doesn't add to
 - `docker-compose.yaml`, `scripts/compose-up.sh`, `scripts/lib.sh`

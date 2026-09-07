@@ -1,4 +1,4 @@
-# prod-shaped overlay — the deliverable.
+# prod-shaped overlay — the one that ships.
 #
 # "prod-shaped", not "prod": no cluster here serves traffic, and nothing here
 # is a production deployment. What this overlay does is refuse every shortcut
@@ -31,7 +31,7 @@ configMapGenerator:
       # The entrypoint refuses to start an image built with SKIP_COMPILE=true
       # when this is set. That flag exists so the manifests can be iterated on
       # before the compile in ADR-004 is settled, and an image built with it
-      # is not the deliverable — this is what stops it becoming one by
+      # is not what ships — this is what stops it becoming that by
       # accident.
       - MAGENTO_REQUIRE_COMPILED=true
 

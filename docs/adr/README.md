@@ -18,4 +18,4 @@ Every one records the alternative that was nearly chosen and why it lost. An ADR
 
 **ADR-006 was materially revised on 2026-08-27**, when this repository was repointed at a Magento tree of its own. The compile problem it shared an answer with is closed: `COMPILE_EXCLUDES` is empty, which is the state ADR-004 named as the goal.
 
-**ADR-006 set a precondition on publication — an Open Source build from a clean checkout — and it was met on 2026-09-07**, at the cost of four defects nothing else had found. [ADR-009](ADR-009-publishing-as-emporion.md) records how it is published. Read the two together.
+**ADR-006 set a precondition on publication — an Open Source build from a clean checkout — and it was met on 2026-09-07**, at the cost of four defects nothing else had found. [ADR-009](ADR-009-publishing-as-emporion.md) records how it's published. Read the two together.

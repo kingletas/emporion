@@ -14,7 +14,7 @@
 # unsafe here.
 #
 #   image     the built artifact, `compose-build` puts the code inside it.
-#             The deliverable, the default, and what the prod-shaped overlay
+#             What ships, the default, and what the prod-shaped overlay
 #             and the cluster both use.
 #
 #   mounted   ${MAGENTO_SRC} is bind-mounted at /app, in developer mode, with

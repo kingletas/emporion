@@ -1,6 +1,6 @@
 # Running it
 
-The commands, the checks that decide whether it works, and where to look when it does not.
+The commands, the checks that decide whether it works, and where to look when it doesn't.
 
 ## Contents
 
@@ -44,7 +44,7 @@ make shell
 make cli ARGS="cache:flush"
 ```
 
-`make cli` and `make compose-cli` both run in `php-cron`, not `php-fpm` — a reindex inside a container that is also serving storefront traffic competes with it for the same memory limit, and the background pool exists so that work has somewhere else to go.
+`make cli` and `make compose-cli` both run in `php-cron`, not `php-fpm` — a reindex inside a container that's also serving storefront traffic competes with it for the same memory limit, and the background pool exists so that work has somewhere else to go.
 
 ---
 
@@ -55,7 +55,7 @@ make cli ARGS="cache:flush"
 make lint
 ```
 
-Renders both overlays, validates **both Compose files for every site**, checks that no two sites share a namespace and that each one's cache prefix is a string Magento will accept, and shellchecks every script including the ones baked into the image. It is the cheap gate, and it proves nothing about an assembled application.
+Renders both overlays, validates **both Compose files for every site**, checks that no two sites share a namespace and that each one's cache prefix is a string Magento will accept, and shellchecks every script including the ones baked into the image. It's the cheap gate, and it proves nothing about an assembled application.
 
 ```bash
 make verify-namespaces
@@ -66,17 +66,17 @@ make verify-namespaces
 > [!warning] A correct config decides nothing until the image is rebuilt
 > `magento-entrypoint` writes `env.php` and **lives inside the image**. So the config file can be right, `docker compose config` can be right, `env` inside the container can be right, and the store can still be using another store's search index.
 >
-> That is not hypothetical — it is why this check exists. Both new namespaces were parameterised, both site files were correct, the container's environment showed the right values, and `env.php` still said `magento2` and `/` because the image predated the change. **`make lint` cannot see this and neither can Compose.** Only reading the file the application loaded can.
+> That's not hypothetical — it's why this check exists. Both new namespaces were parameterised, both site files were correct, the container's environment showed the right values, and `env.php` still said `magento2` and `/` because the image predated the change. **`make lint` cannot see this and neither can Compose.** Only reading the file the application loaded can.
 
 ```bash
 make smoke
 ```
 
-Walks the acceptance criteria and reports each one pass, fail or skip. It does not stop at the first failure: a report of everything that is wrong is worth more than the first thing that is wrong.
+Walks the acceptance criteria and reports each one pass, fail or skip. It doesn't stop at the first failure: a report of everything that's wrong is worth more than the first thing that's wrong.
 
 **It runs A1 to A11.** A12 is this documentation and A13 has a command of its own — `make verify-namespaces`, below — because it asks about *every* store on the machine rather than about the one the smoke is pointed at.
 
-| | Criterion | How it is checked |
+| | Criterion | How it's checked |
 |---|---|---|
 | A1 | Builds from nothing | `make rebuild` — the script cannot check the thing it runs inside |
 | A2 | Storefront renders | HTTP 200 through the ingress |
@@ -92,22 +92,22 @@ Walks the acceptance criteria and reports each one pass, fail or skip. It does n
 | A12 | Documented | This file |
 | A13 | **Each store uses its own namespaces** | `make verify-namespaces` — against the running `env.php`, not the config. **Not part of `make smoke`** |
 
-**A7 cannot be fully met, and this repository says so rather than measuring something easier.** Two builds from one commit do not produce the same digest: the base image is a moving tag, apt pulls whatever the mirror has, and every layer carries a timestamp. `scripts/verify-image.sh` hashes the *application content* instead — same code, same vendor tree, same `generated/`, same static content — and its header states plainly which four things it is not checking and which three of them cannot be fixed from inside this repository.
+**A7 cannot be fully met, and this repository says so rather than measuring something easier.** Two builds from one commit don't produce the same digest: the base image is a moving tag, apt pulls whatever the mirror has, and every layer carries a timestamp. `scripts/verify-image.sh` hashes the *application content* instead — same code, same vendor tree, same `generated/`, same static content — and its header states plainly which four things it isn't checking and which three of them cannot be fixed from inside this repository.
 
-**A11 is thinner than it looks against an empty catalogue.** A cache HIT on the CMS home page proves the chain is intact; it does not prove anything about the catalogue path, because there is no catalogue until `make sample-data` or real products exist. Read it as what it is.
+**A11 is thinner than it looks against an empty catalogue.** A cache HIT on the CMS home page proves the chain is intact; it doesn't prove anything about the catalogue path, because there's no catalogue until `make sample-data` or real products exist. Read it as what it's.
 
 ---
 
 
 ## Setting resources from measurement
 
-Every workload has a request. The limits are not guesses, but they are also not yet measurements — they are conventions sized for a laptop, and that is stated rather than implied.
+Every workload has a request. The limits are not guesses, but they are also not yet measurements — they are conventions sized for a laptop, and that's stated rather than implied.
 
 ```bash
 make top
 ```
 
-prints declared requests and limits beside actual usage. Actual usage needs `metrics-server`, which is **not installed by default** — it is one more component on a memory-constrained host, and it is only worth installing when the numbers are actually being tuned:
+prints declared requests and limits beside actual usage. Actual usage needs `metrics-server`, which is **not installed by default** — it's one more component on a memory-constrained host, and it's only worth installing when the numbers are actually being tuned:
 
 ```bash
 kubectl --context kind-vanilla apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml

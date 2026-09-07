@@ -24,14 +24,14 @@ A third fact is worth recording because it closed a problem rather than opening 
 
 **The source stays a build parameter, and never a hardcoded path.**
 
-`MAGENTO_SRC` defaults to a `commerce-vanilla` tree beside this repository and is passed to the build as a BuildKit named context. One environment variable builds the same manifests, and the same Compose stack, against a different tree. That was the right shape when the default was an existing webroot and it is still the right shape now that it is not.
+`MAGENTO_SRC` defaults to a `commerce-vanilla` tree beside this repository and is passed to the build as a BuildKit named context. One environment variable builds the same manifests, and the same Compose stack, against a different tree. That was the right shape when the default was an existing webroot and it's still the right shape now that it isn't.
 
 **Nothing in `k8s/`, `build/` or `docker-compose.yaml` names any particular store's application**, and that survives the move as a property to preserve rather than a cleanup to perform:
 
 - The consumer list is **core Magento queues only**. Anything site-specific is added through the shared env file and an overlay, which is the correct layering regardless.
 - `config/files/nginx/magento.conf` carries no multisite `MAGE_RUN_CODE` map and no store-specific rewrite table. Those are business routing, not infrastructure.
 - The Varnish VCL was written for this deployment rather than copied from one.
-- No credential, key or certificate is **committable** from this directory. `CERTS_HOME` defaults to `certs/` inside the repository and `secrets/` sits beside it; both are gitignored, and `make scan` asks git rather than trusting the paths — it failed once on a `certs/` pattern that did not match a symlink.
+- No credential, key or certificate is **committable** from this directory. `CERTS_HOME` defaults to `certs/` inside the repository and `secrets/` sits beside it; both are gitignored, and `make scan` asks git rather than trusting the paths — it failed once on a `certs/` pattern that didn't match a symlink.
 
 **Publishing remains a separate, deliberate act with a precondition**: the repository has to build and run against Magento Open Source, on a clean checkout, using only the documented commands. Adobe Commerce being the development target makes this more necessary rather than less — an authenticated Composer repository is a harder barrier than an unfamiliar directory layout.
 
@@ -45,23 +45,23 @@ A third fact is worth recording because it closed a problem rather than opening 
 
 **Advantages** — The publication question disappears entirely. Anyone could clone and build. Smaller image, faster compile, no `auth.json` for sample data.
 
-**Disadvantages** — It is not the store being run. The point of this repository is to run *this* store, and this store is Adobe Commerce: EE-only modules, EE data patches, the EE admin. An environment that cannot run what it is meant to run has optimised for a property nobody asked for. Open Source stays the **publication** target, which is a different question from the **development** target and is answered separately above.
+**Disadvantages** — It isn't the store being run. The point of this repository is to run *this* store, and this store is Adobe Commerce: EE-only modules, EE data patches, the EE admin. An environment that cannot run what it's meant to run has optimised for a property nobody asked for. Open Source stays the **publication** target, which is a different question from the **development** target and is answered separately above.
 
 ### Vendor the Magento tree into this repository
 
 **Advantages** — Self-contained. One clone, one build.
 
-**Disadvantages** — Puts licensed source into this repository's history, where removing it later does not remove it. It also welds the runtime to one version of the application, which is exactly what `MAGENTO_SRC` exists to avoid. This is the option that looks tidy and is not.
+**Disadvantages** — Puts licensed source into this repository's history, where removing it later doesn't remove it. It also welds the runtime to one version of the application, which is exactly what `MAGENTO_SRC` exists to avoid. This is the option that looks tidy and is not.
 
 ### Keep the old posture and carry on developing against the existing webroot
 
 **Advantages** — No move, no rewrite, no new store to install.
 
-**Disadvantages** — Every change to the runtime risked touching a working environment that other work depends on, and the whole publication boundary had to be maintained by hand and by memory. The failure mode was *forgetting which mode you are in*, and it was invisible until the first push to a remote. Moving to a store of its own deletes the failure mode rather than guarding against it.
+**Disadvantages** — Every change to the runtime risked touching a working environment that other work depends on, and the whole publication boundary had to be maintained by hand and by memory. The failure mode was *forgetting which mode you're in*, and it was invisible until the first push to a remote. Moving to a store of its own deletes the failure mode rather than guarding against it.
 
 ## Consequences
 
-- **`make sample-data` cannot work without `repo.magento.com` credentials**, and it says so with a named error rather than half-running. That is this decision's most visible day-to-day cost, and it is the licence showing through.
+- **`make sample-data` cannot work without `repo.magento.com` credentials**, and it says so with a named error rather than half-running. That's this decision's most visible day-to-day cost, and it's the licence showing through.
 - **`make scan` is a real gate, not decoration.** It fails on credential-shaped strings, on key material inside the directory, and if `secrets/` stops being ignored.
 - **The repository-local `.gitignore` is still load-bearing, for a shorter list of reasons.** `core.excludesFile` points at `~/.gitignore`, a Magento project's list: its `*.sh` rule would exclude every script here and its `docker-compose.yaml` rule would exclude the Compose runtime. The `*.json`, `*.php` and `*.cnf` negations the old parent repository required are gone, because that parent is gone.
 - **The licence file is committed**, which it could not honestly have been before the precondition was met.

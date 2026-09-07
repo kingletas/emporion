@@ -7,7 +7,7 @@ date: 2026-08-24
 # ADR-003 — Shared media strategy
 
 > [!info] Status
-> **Accepted, with a limit stated in the decision itself.** This one is only correct on a single-node cluster. Revisit the moment a second node exists — not because it will degrade, but because it will stop working entirely, and that is the more useful failure.
+> **Accepted, with a limit stated in the decision itself.** This one is only correct on a single-node cluster. Revisit the moment a second node exists — not because it will degrade, but because it will stop working entirely, and that's the more useful failure.
 
 ## Context
 
@@ -49,23 +49,23 @@ That reduces a shared root filesystem to a single shared directory, which is the
 
 **Advantages** — The architecturally correct answer, and the one a real deployment should reach. Media stops being a filesystem concern; the claim disappears; it scales to any number of nodes and any number of clusters.
 
-**Disadvantages** — Adds MinIO to the stack. Magento's remote-storage path is patchy in practice — the admin image uploader, the product image resizer and the media gallery each interact with it differently, and the failure modes are subtle rather than loud. It is also, unlike the other options, a change to how the *application* works, which puts it outside what this repository can validate: nothing here tests Magento's own behaviour.
+**Disadvantages** — Adds MinIO to the stack. Magento's remote-storage path is patchy in practice — the admin image uploader, the product image resizer and the media gallery each interact with it differently, and the failure modes are subtle rather than loud. It's also, unlike the other options, a change to how the *application* works, which puts it outside what this repository can validate: nothing here tests Magento's own behaviour.
 
 ### `hostPath` mounted directly into every pod
 
 **Advantages** — Works immediately, needs no provisioner.
 
-**Disadvantages** — It is the Compose bind mount with a Kubernetes accent. It models nothing a real deployment would do, so anything learned from it about storage would be false.
+**Disadvantages** — It's the Compose bind mount with a Kubernetes accent. It models nothing a real deployment would do, so anything learned from it about storage would be false.
 
-> [!important] Object storage was the near miss and it is the one that should have been built
-> Splitting the concerns is the correct answer and the most work, and object storage for the remaining shared path is the answer that survives a second node. What is built here does the split, which is most of the value, and then takes the *easy* option for the path that is left. **The single-node claim is a real solution to a smaller problem than the one posed**, and this ADR says so rather than letting the shape of the code imply otherwise.
+> [!important] Object storage was the near miss and it's the one that should have been built
+> Splitting the concerns is the correct answer and the most work, and object storage for the remaining shared path is the answer that survives a second node. What is built here does the split, which is most of the value, and then takes the *easy* option for the path that's left. **The single-node claim is a real solution to a smaller problem than the one posed**, and this ADR says so rather than letting the shape of the code imply otherwise.
 
 ## Consequences
 
 - **A second node breaks the media claim.** Not degrades — breaks. A pod scheduled elsewhere gets an empty directory, and images uploaded through admin vanish for half the requests. Anyone adding a node has to resolve this first.
 - **`pub/static` and `generated/` are now build outputs, which makes the build a hard dependency of the deploy.** A deploy without a successful `setup:di:compile` produces pods with no static content, which is [ADR-004](ADR-004-image-build-strategy.md)'s problem and is why these two decisions were made together.
-- **`var/` being pod-local means nothing in it is a record.** Anything worth keeping — reports, exception logs — has to leave the pod at the time it is written. Logs go to stdout for this reason.
-- **Acceptance criterion A9 is checkable and can fail honestly.** `make smoke` writes a file through one php-fpm pod and reads it from another; it skips rather than passes when there is only one replica, because a shared-storage test with one pod proves nothing.
+- **`var/` being pod-local means nothing in it is a record.** Anything worth keeping — reports, exception logs — has to leave the pod at the time it's written. Logs go to stdout for this reason.
+- **Acceptance criterion A9 is checkable and can fail honestly.** `make smoke` writes a file through one php-fpm pod and reads it from another; it skips rather than passes when there's only one replica, because a shared-storage test with one pod proves nothing.
 
 ## Related
 

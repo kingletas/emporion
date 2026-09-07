@@ -1,6 +1,6 @@
 # From nothing to a storefront
 
-This guide assumes you have a Linux machine, Docker, and no Magento experience beyond knowing it is a PHP shop. By the end you will have a Magento store running on your own machine, you will know which command does what, and you will recognise the handful of errors that account for most of the trouble.
+This guide assumes you've a Linux machine, Docker, and no Magento experience beyond knowing it's a PHP shop. By the end you'll have a Magento store running on your own machine, you'll know which command does what, and you'll recognise the handful of errors that account for most of the trouble.
 
 **Nothing here reaches a production system.** Everything runs on your machine, the credentials are generated locally and guard nothing, and no step costs money.
 
@@ -8,7 +8,7 @@ This guide assumes you have a Linux machine, Docker, and no Magento experience b
 
 **Part one — one store, about an hour, most of it waiting:**
 
-- [What you are building](#what-you-are-building)
+- [What you're building](#what-you-are-building)
 - [Step 1: the things this cannot supply](#step-1-the-things-this-cannot-supply)
 - [Step 2: a hostname that resolves](#step-2-a-hostname-that-resolves)
 - [Step 3: a certificate for that hostname](#step-3-a-certificate-for-that-hostname)
@@ -27,11 +27,11 @@ This guide assumes you have a Linux machine, Docker, and no Magento experience b
 
 **Part three — when it goes wrong:**
 
-- [The errors you will actually meet](#the-errors-you-will-actually-meet)
+- [The errors you'll actually meet](#the-errors-you-will-actually-meet)
 
-## What you are building
+## What you're building
 
-A Magento store is not one program. It is about twenty containers that have to agree with each other:
+A Magento store is not one program. It's about twenty containers that have to agree with each other:
 
 | Part | What it does |
 |---|---|
@@ -47,7 +47,7 @@ A Magento store is not one program. It is about twenty containers that have to a
 
 **This repository is the description of all of that**, in two forms — a Docker Compose stack and a Kubernetes cluster — from one image and one set of configuration files.
 
-You want the Compose one. It starts in under a minute and it is what you work in day to day. The cluster is for questions Compose cannot be asked, and [The two runtimes](runtimes.md) explains when that is.
+You want the Compose one. It starts in under a minute and it's what you work in day to day. The cluster is for questions Compose cannot be asked, and [The two runtimes](runtimes.md) explains when that's.
 
 ## Step 1: the things this cannot supply
 
@@ -57,7 +57,7 @@ You want the Compose one. It starts in under a minute and it is what you work in
 docker compose version
 ```
 
-**A Magento tree.** Nothing here contains Magento, and that is deliberate — see [ADR-006](adr/ADR-006-magento-source-and-licence.md). Step 4 gets you one.
+**A Magento tree.** Nothing here contains Magento, and that's deliberate — see [ADR-006](adr/ADR-006-magento-source-and-licence.md). Step 4 gets you one.
 
 **`mkcert`**, for the certificate in step 3. Your package manager probably has it.
 
@@ -75,7 +75,7 @@ cd emporion
 
 ## Step 2: a hostname that resolves
 
-The store is served at a hostname, not at `http://localhost:8080`. That is not decoration. **A browser will not store a `Secure` cookie on an origin it does not trust**, and a Magento admin session is a secure cookie — so on a plain loopback address you log in, the session vanishes, and the dashboard never opens. The error message tells you nothing.
+The store is served at a hostname, not at `http://localhost:8080`. That's not decoration. **A browser will not store a `Secure` cookie on an origin it does not trust**, and a Magento admin session is a secure cookie — so on a plain loopback address you log in, the session vanishes, and the dashboard never opens. The error message tells you nothing.
 
 You need two things: every `*.test` name to resolve to your Docker bridge, and a reverse proxy on that address routing by hostname.
 
@@ -85,7 +85,7 @@ You need two things: every `*.test` name to resolve to your Docker bridge, and a
 echo '172.17.0.1  vanilla.test mail.vanilla.test' | sudo tee -a /etc/hosts
 ```
 
-That works for one store. The moment you want a second you will be editing that file again, which is why the fuller answer is a wildcard DNS resolver — `dnsmasq` with `address=/test/172.17.0.1` — plus `nginx-proxy`, which reads a `VIRTUAL_HOST` label off each container and routes to it. Set that up once and every future store needs no DNS step at all.
+That works for one store. The moment you want a second you'll be editing that file again, which is why the fuller answer is a wildcard DNS resolver — `dnsmasq` with `address=/test/172.17.0.1` — plus `nginx-proxy`, which reads a `VIRTUAL_HOST` label off each container and routes to it. Set that up once and every future store needs no DNS step at all.
 
 > [!NOTE]
 > `172.17.0.1` is the default Docker bridge address. Check yours with `ip addr show docker0`. It reaches your machine *and* every container, which is what makes it the right address for both a browser and a container to use.
@@ -108,7 +108,7 @@ mkcert -cert-file certs/vanilla.test.crt -key-file certs/vanilla.test.key vanill
 
 `certs/` is gitignored, so nothing you generate here can be committed.
 
-> [!DANGER] There is no wildcard shortcut, and the failure is silent
+> [!DANGER] There's no wildcard shortcut, and the failure is silent
 > A certificate whose only name is `*.test` covers **nothing**. A wildcard may not span an entire top-level domain, so every client rejects it for every host — while every configuration file on disk says TLS is set up.
 >
 > **Each hostname gets its own certificate or it has none.** If you add `mail.vanilla.test` later, issue one for that too.
@@ -125,7 +125,7 @@ somewhere/
 
 Magento comes in two editions. **Magento Open Source** is free and is what this guide uses. **Adobe Commerce** is the paid one; point `MAGENTO_SRC` at it instead and everything here works the same.
 
-Both are installed with Composer from `repo.magento.com`, which needs an account. It is free: sign in at the Magento Marketplace, go to Access Keys, and create a pair. The **public** key is the username and the **private** key is the password.
+Both are installed with Composer from `repo.magento.com`, which needs an account. It's free: sign in at the Magento Marketplace, go to Access Keys, and create a pair. The **public** key is the username and the **private** key is the password.
 
 ```bash
 cd ..
@@ -143,7 +143,7 @@ cd emporion
 ```
 
 > [!NOTE]
-> You do not need to install or configure Magento yourself. Step 7 does that. What you need now is the code and its `vendor/` directory, which is what `create-project` produced.
+> You don't need to install or configure Magento yourself. Step 7 does that. What you need now is the code and its `vendor/` directory, which is what `create-project` produced.
 
 ## Step 5: credentials
 
@@ -163,14 +163,14 @@ make compose-up
 
 About a minute. It starts the shared data tier first, waits for it to be healthy, then starts the application containers.
 
-The first run also **builds the application image**, which is a different matter — ten to twenty minutes, and it will make the machine slow while it runs. It is compiling Magento's dependency injection code and deploying every static asset into the image, so that the running containers need no writable application directory.
+The first run also **builds the application image**, which is a different matter — ten to twenty minutes, and it will make the machine slow while it runs. It's compiling Magento's dependency injection code and deploying every static asset into the image, so that the running containers need no writable application directory.
 
 ```bash
 make compose-status
 ```
 
 > [!NOTE]
-> **Varnish will report unhealthy at this point, and that is correct.** Its health check asks the storefront for a page, and there is no store yet. It goes healthy at the end of step 7.
+> **Varnish will report unhealthy at this point, and that is correct.** Its health check asks the storefront for a page, and there's no store yet. It goes healthy at the end of step 7.
 
 ## Step 7: install the store
 
@@ -204,7 +204,7 @@ Check the whole thing honestly:
 make smoke
 ```
 
-That walks a list of acceptance criteria and reports each one pass, fail or skip. It does not stop at the first failure, because a report of everything that is wrong is worth more than the first thing that is wrong.
+That walks a list of acceptance criteria and reports each one pass, fail or skip. It doesn't stop at the first failure, because a report of everything that's wrong is worth more than the first thing that's wrong.
 
 ## A second store
 
@@ -232,7 +232,7 @@ make destroy-site SITE=second.test
 
 ## Snapshots, so the next store takes a minute
 
-Installing from empty is twenty minutes. Capturing an installed store and restoring it is about one.
+Installing from empty is twenty minutes. Capturing an installed store and restoring it's about one.
 
 ```bash
 make snapshot NAME=baseline
@@ -246,7 +246,7 @@ A snapshot is two files, because a store is two things: the database and the upl
 
 ## Working on a module
 
-By default the store runs the code that is baked into the image, and changing that code means rebuilding — ten to twenty minutes. That is the wrong trade while you are editing a file every few minutes.
+By default the store runs the code that's baked into the image, and changing that code means rebuilding — ten to twenty minutes. That's the wrong trade while you're editing a file every few minutes.
 
 ```bash
 make compose-source SOURCE=mounted
@@ -283,15 +283,15 @@ make up
 
 The cluster is worth it for questions Compose cannot be asked: what happens when a pod is replaced, whether a storage claim binds, whether a readiness probe measures the thing it claims to, whether a rollout is safe. For everything else, use Compose.
 
-## The errors you will actually meet
+## The errors you'll actually meet
 
-Every one of these has happened here. The message is what you will see; the cause is rarely what the message suggests.
+Every one of these has happened here. The message is what you'll see; the cause is rarely what the message suggests.
 
 ### `You cannot run this command because modules are not enabled`
 
-**During the image build.** A freshly created Magento tree has no `app/etc/config.php` — that file is written by the installer, so a tree that has been installed once has it and a `composer create-project` tree does not.
+**During the image build.** A freshly created Magento tree has no `app/etc/config.php` — that file is written by the installer, so a tree that has been installed once has it and a `composer create-project` tree doesn't.
 
-The build handles this now by running `module:enable --all` first. If you see it, you are on an older build or you are running `bin/magento` by hand against a tree that has never been installed.
+The build handles this now by running `module:enable --all` first. If you see it, you're on an older build or you're running `bin/magento` by hand against a tree that has never been installed.
 
 ### `The configuration file has changed. Run the "app:config:import" command`
 
@@ -313,11 +313,11 @@ The usual cause is that the store is genuinely busy rebuilding configuration —
 
 **A hyphen in a cache prefix.** Magento rejects it from `bin/magento`'s constructor, so *every* command fails, including the install, with a stack trace naming the id and never the setting.
 
-Store hostnames are turned into prefixes automatically and use underscores for exactly this reason. If you set `MAGENTO_CACHE_PREFIX` by hand, do not put a hyphen in it. `make lint` checks this.
+Store hostnames are turned into prefixes automatically and use underscores for exactly this reason. If you set `MAGENTO_CACHE_PREFIX` by hand, don't put a hyphen in it. `make lint` checks this.
 
 ### `ERROR 1045 (28000): Access denied for user 'root'`
 
-**The database volume is older than the credentials.** MariaDB records the root password when its data directory is first created. If the volume survives but `secrets/` does not, they no longer match.
+**The database volume is older than the credentials.** MariaDB records the root password when its data directory is first created. If the volume survives but `secrets/` doesn't, they no longer match.
 
 It happens when a store is removed in a way that leaves its data behind. Remove both:
 
@@ -341,9 +341,9 @@ make secrets
 
 ## Where to go next
 
-- [Getting started](getting-started.md) — the same ground, condensed, for when you have done it once
+- [Getting started](getting-started.md) — the same ground, condensed, for when you've done it once
 - [The two runtimes](runtimes.md) — Compose or the cluster, and getting code into a running store
 - [More than one store](sites.md) — what keeps two stores out of each other's data
 - [Running it](operations.md) — every command, the checks, and debugging
 - [Configuration](configuration.md) — every setting and where it lives
-- [How it is put together](architecture.md) — and [the decisions](adr/) behind it
+- [How it's put together](architecture.md) — and [the decisions](adr/) behind it

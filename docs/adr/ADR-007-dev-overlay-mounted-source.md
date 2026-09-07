@@ -7,7 +7,7 @@ date: 2026-08-24
 # ADR-007 — The dev overlay mounts the working tree
 
 > [!info] Status
-> **Accepted.** Revisit if the dev overlay ever becomes the one people treat as the real thing. That is the failure this decision is most exposed to, and it would not announce itself.
+> **Accepted.** Revisit if the dev overlay ever becomes the one people treat as the real thing. That's the failure this decision is most exposed to, and it wouldn't announce itself.
 
 ## Context
 
@@ -35,13 +35,13 @@ The `prod-shaped` overlay refuses every one of those: code from the image only, 
 
 **Advantages** — One mode. No hostPath anywhere. The image is unambiguously the only source of code, and nothing in the repository can be mistaken for a production pattern.
 
-**Disadvantages** — Makes the environment unusable for the work it is meant to support. A one-line change costing a full image build and roll is not a development environment; it is a deployment pipeline with no development in front of it. It also removes the ability to *compare* the two modes, which is where the understanding is.
+**Disadvantages** — Makes the environment unusable for the work it's meant to support. A one-line change costing a full image build and roll is not a development environment; it's a deployment pipeline with no development in front of it. It also removes the ability to *compare* the two modes, which is where the understanding is.
 
 ### Use a file-sync tool (Skaffold, Mutagen, Tilt) instead of a hostPath
 
 **Advantages** — Works on multi-node and on remote clusters. The pattern real teams use for exactly this problem.
 
-**Disadvantages** — A fourth binary and a sync daemon whose failure modes — a file that did not sync, a partial write — are indistinguishable from application bugs. On a single-node cluster where a hostPath is available and exact, that is a lot of machinery to reproduce a bind mount.
+**Disadvantages** — A fourth binary and a sync daemon whose failure modes — a file that didn't sync, a partial write — are indistinguishable from application bugs. On a single-node cluster where a hostPath is available and exact, that's a lot of machinery to reproduce a bind mount.
 
 ### Run the storefront under Compose and only the data tier on Kubernetes
 
@@ -49,15 +49,15 @@ The `prod-shaped` overlay refuses every one of those: code from the image only, 
 
 **Disadvantages** — Makes the environment unusable for the work it exists to support. The interesting problems are all in the application tier.
 
-> [!important] The near miss was dropping the dev overlay, and the reason it lost is also the reason it is dangerous
-> A single prod-shaped mode would be a cleaner artefact. The dev overlay exists because the environment has to remain usable — and the risk it carries is that it is *nicer to use*, so it becomes the one everybody runs, and what gets reasoned about is a hostPath mount with a Kubernetes accent. The mitigation is that `prod-shaped` is the default for anything being measured or verified, and the overlay names say which is which without needing a footnote.
+> [!important] The near miss was dropping the dev overlay, and the reason it lost is also the reason it's dangerous
+> A single prod-shaped mode would be a cleaner artefact. The dev overlay exists because the environment has to remain usable — and the risk it carries is that it's *nicer to use*, so it becomes the one everybody runs, and what gets reasoned about is a hostPath mount with a Kubernetes accent. The mitigation is that `prod-shaped` is the default for anything being measured or verified, and the overlay names say which is which without needing a footnote.
 
 ## Consequences
 
-- **`cluster/kind-config.yaml` carries one host path in `extraMounts`, and it is `${MAGENTO_SRC}` rather than a literal.** `scripts/cluster-up.sh` substitutes it before kind reads the file, so the mount follows the same variable the image build uses and there is nothing here for a reader to edit. The path is still machine-specific at cluster-create time, which is unavoidable for a hostPath overlay — kind resolves it once, and a wrong one produces pods that start with no Magento in them rather than an error naming the mount.
-- **The dev overlay is single-node-only and unportable, by construction.** Same limit as [ADR-003](ADR-003-shared-media-strategy.md), for the same reason, and it is fine here because the overlay is not claiming to be anything else.
+- **`cluster/kind-config.yaml` carries one host path in `extraMounts`, and it is `${MAGENTO_SRC}` rather than a literal.** `scripts/cluster-up.sh` substitutes it before kind reads the file, so the mount follows the same variable the image build uses and there's nothing here for a reader to edit. The path is still machine-specific at cluster-create time, which is unavoidable for a hostPath overlay — kind resolves it once, and a wrong one produces pods that start with no Magento in them rather than an error naming the mount.
+- **The dev overlay is single-node-only and unportable, by construction.** Same limit as [ADR-003](ADR-003-shared-media-strategy.md), for the same reason, and it's fine here because the overlay is not claiming to be anything else.
 - **A pod in this overlay must never write into the tree it mounts.** That tree is the build input for the runtime image and for the Compose stack, so `var/`, `generated/` and `env.php` are all container-local or shadowed here. A developer-mode pod regenerating interceptors into the source would mean the next image is built from something nobody chose.
-- **The `dev` image target contains no application code at all.** That is what makes the overlay boundary enforceable rather than conventional: running the dev image without the dev overlay produces a pod with an empty `/app`, which fails immediately instead of subtly.
+- **The `dev` image target contains no application code at all.** That's what makes the overlay boundary enforceable rather than conventional: running the dev image without the dev overlay produces a pod with an empty `/app`, which fails immediately instead of subtly.
 
 ## Related
 

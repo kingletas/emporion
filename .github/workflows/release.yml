@@ -1,0 +1,61 @@
+name: Release
+
+# Tagging is the whole trigger: `git tag v1.2.3 && git push --tags` checks the
+# changelog has a section for it, then publishes a GitHub Release whose body is
+# that section.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 1.2.3)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Work out which version this is
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          # A release with no notes is one nobody can read, so this stops here
+          # rather than publishing an empty body.
+          packaging/release-notes.sh "$version" > /dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # What proves this version is usable. There is no artefact to install
+      # here -- what ships is the repository itself -- so the proof is that
+      # a checkout of the tagged commit passes its own gate: both overlays
+      # render, both Compose files validate, no two stores share a namespace,
+      # shellcheck is clean, and nothing credential-shaped is committable.
+      - name: Prove the tagged commit passes its own gate
+        run: |
+          make secrets
+          make check
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.pick.outputs.version }}"
+          packaging/release-notes.sh "$version" > notes.md
+          if gh release view "v${version}" >/dev/null 2>&1; then
+            echo "v${version} exists: updating its notes"
+            gh release edit "v${version}" --title "Emporion ${version}" --notes-file notes.md
+          else
+            gh release create "v${version}" --target "$GITHUB_SHA" \
+              --title "Emporion ${version}" --notes-file notes.md
+          fi

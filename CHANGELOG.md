@@ -6,9 +6,9 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 
 First public release, under the name **Emporion**.
 
-This grew out of running a real Magento store on a workstation and wanting the environment to be one description rather than two. It works, it is used daily, and the interfaces will still move — treat it as a prototype with a substantial body of work behind it.
+This grew out of running a real Magento store on a workstation and wanting the environment to be one description rather than two. It works, it's used daily, and the interfaces will still move — treat it as a prototype with a substantial body of work behind it.
 
-It is published from a fresh root commit. The development history stayed private because it carried absolute paths, hostnames and machine names belonging to the environment it grew out of, and a text sweep of the working tree cannot reach a git history.
+It's published from a fresh root commit. The development history stayed private because it carried absolute paths, hostnames and machine names belonging to the environment it grew out of, and a text sweep of the working tree cannot reach a git history.
 
 ### What it does
 
@@ -42,4 +42,4 @@ The publication precondition in [ADR-006](docs/adr/ADR-006-magento-source-and-li
 
 - **`make lint` could not pass, and had not been able to for some time.** A nameref parameter named `out` in one function made shellcheck read a plain string named `out` in another as an array, and it reported twelve findings across five lines. The string is called `bundle` now.
 - **A fresh clone could not pass `make lint` either**, because the Compose files read env fragments that only `make secrets` writes, and the failure named a missing file rather than the missing step. That step is now the documented first command and the first thing CI runs.
-- **`certs/` in `.gitignore` did not ignore `certs`.** A trailing slash matches a directory, and the obvious way to supply certificates — a symlink to a shared mkcert directory — is not one. The link showed up as untracked, one `git add -A` from being committed, while every file beneath it looked ignored. Git will not even answer a `check-ignore` for a path through the link once it exists.
+- **`certs/` in `.gitignore` did not ignore `certs`.** A trailing slash matches a directory, and the obvious way to supply certificates — a symlink to a shared mkcert directory — is not one. The link showed up as untracked, one `git add -A` from being committed, while every file beneath it looked ignored. Git won't even answer a `check-ignore` for a path through the link once it exists.

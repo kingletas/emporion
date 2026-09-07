@@ -5,7 +5,7 @@
 # overlay answers for the cluster: **how does a code change reach a running
 # store without rebuilding the image?**
 #
-# The image path is the deliverable and it stays the default. But a full
+# The image path is what ships and it stays the default. But a full
 # `compose-build` re-runs composer, `setup:di:compile` and a static-content
 # deploy and then exports a 1.5 GB image — ten to twenty minutes, and enough
 # concurrent PHP to make the workstation unusable while it runs. Paying that to

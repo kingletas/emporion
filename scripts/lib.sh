@@ -132,7 +132,7 @@ resolve_site() {
     fi
 
     # SITE_SOURCE — where the application code comes from. `image`, which is
-    # the deliverable, or `mounted`, which is the working tree at /app.
+    # what ships, or `mounted`, which is the working tree at /app.
     #
     # A PROPERTY OF THE SITE, for the same reason SITE_MODE is one, and here
     # the cost of getting it wrong is worse than a misdirected data tier. Every

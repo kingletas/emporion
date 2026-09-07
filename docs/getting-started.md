@@ -33,7 +33,7 @@ make compose-up SITE=second.test
 make compose-up second.test
 ```
 
-> [!warning] The bare word is made to work; it is not free
+> [!warning] The bare word is made to work; it isn't free
 > A bare word is a second *goal* to Make, not an argument — so `make destroy-site second.test` originally ran `destroy-site` against whatever `SITE` defaulted to and only then failed looking for a rule to build `second.test`. **On a destructive target that meant offering to delete a different store than the one named.**
 >
 > A single `<name>.test` goal is now bound to `SITE` and consumed, saying it twice is an error rather than a guess, and **`destroy-site` and `compose-destroy` refuse to run on the default at all** — they require the store to be named. A `--flag` is a second goal for the same reason and is not rescued: `MODE=exclusive` is the spelling.
@@ -50,9 +50,9 @@ Then `https://vanilla.test/`. No `/etc/hosts` line is needed — dnsmasq already
 > curl --resolve wildcard.test:18443:127.0.0.1    https://wildcard.test:18443/    TLS failure
 > ```
 >
-> **The explicit names verify and the wildcard never matches anything**, which is exactly why a shared wildcard file can look like it is working for years.
+> **The explicit names verify and the wildcard never matches anything**, which is exactly why a shared wildcard file can look like it's working for years.
 >
-> **So each host gets its own certificate or it has none.** `make new-site` issues one for the site and for its mail host, and `cluster-up.sh` prints the `mkcert` command rather than substituting a certificate no client accepts. **Measured with OpenSSL and curl** — a browser was not put in front of a wildcard-only host, so that part is reasoning from the rule rather than a measurement.
+> **So each host gets its own certificate or it has none.** `make new-site` issues one for the site and for its mail host, and `cluster-up.sh` prints the `mkcert` command rather than substituting a certificate no client accepts. **Measured with OpenSSL and curl** — a browser wasn't put in front of a wildcard-only host, so that part is reasoning from the rule rather than a measurement.
 
 
 ## Installing the store
@@ -67,9 +67,9 @@ make compose-install      # Compose
 make deploy               # cluster — the install Job runs as part of it
 ```
 
-**Both run the same script.** `magento-install` lives in the image at `/usr/local/bin/magento-install`; the cluster runs it as `Job/magento-install` and Compose runs it as a one-shot service. Writing the install once is the whole point — an install that behaved differently depending on which runtime performed it is a difference nobody would think to look for.
+**Both run the same script.** `magento-install` lives in the image at `/usr/local/bin/magento-install`; the cluster runs it as `Job/magento-install` and Compose runs it as a one-shot service. Writing the install once is the whole point — an install that behaved differently depending on which runtime performed it's a difference nobody would think to look for.
 
-It is **idempotent**, and decides for itself:
+It's **idempotent**, and decides for itself:
 
 | Database state | What it does |
 |---|---|
@@ -79,14 +79,14 @@ It is **idempotent**, and decides for itself:
 
 **The third state is why this is not a one-liner.** An unreachable database must never read as an empty one: that mistake turns a transient network failure into an attempted reinstall over live data. It retries for `DB_WAIT_SECONDS`, then dies saying exactly that.
 
-**Every `setup:install` parameter is passed explicitly**, including `--key`. That is what keeps the install from depending on the `env.php` the entrypoint wrote, so the two can never disagree — and because the crypt key is *ours* rather than a generated one, the `env.php` regenerated on the next container start still decrypts everything the install encrypted.
+**Every `setup:install` parameter is passed explicitly**, including `--key`. That's what keeps the install from depending on the `env.php` the entrypoint wrote, so the two can never disagree — and because the crypt key is *ours* rather than a generated one, the `env.php` regenerated on the next container start still decrypts everything the install encrypted.
 
 > [!warning] Changing the shared config is a deploy, not a restart
 > Magento hashes the `system` section of `env.php` and **refuses to serve** when it changes without being re-imported. Every storefront request returns 500 with *"The configuration file has changed. Run `app:config:import`"*, and it does so on the storefront rather than at the point of the edit.
 >
 > After editing `k8s/base/config/env/common.env` — or anything the entrypoint writes into that section — rebuild if the image changed and then run `make compose-install` or `make deploy`. Both end in `app:config:import`.
 >
-> **It fails loudly, which is the good case.** What was not loud is that `health_check.php` kept returning 200 throughout, so the Varnish container reported itself healthy while the whole storefront was down. That probe asks for the storefront now.
+> **It fails loudly, which is the good case.** What wasn't loud is that `health_check.php` kept returning 200 throughout, so the Varnish container reported itself healthy while the whole storefront was down. That probe asks for the storefront now.
 
 ### Sample data
 

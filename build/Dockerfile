@@ -157,7 +157,7 @@ ARG MAGENTO_EDITION=onprem
 ARG COMPILE_EXCLUDES=""
 
 # Escape hatch for iterating on the manifests before the compile is solved.
-# An image built with this is NOT the deliverable — the entrypoint refuses to
+# An image built with this is NOT the one that ships — the entrypoint refuses to
 # start it under the prod-shaped overlay.
 ARG SKIP_COMPILE=false
 

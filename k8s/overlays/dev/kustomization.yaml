@@ -9,7 +9,7 @@
 #   dev           code on a hostPath, Xdebug available, opcache revalidating.
 #                 Fast to iterate, reproduces nothing.
 #   prod-shaped   code in the image, read-only, probes and limits enforced.
-#                 Slow to iterate, is the actual deliverable.
+#                 Slow to iterate, and the one that actually ships.
 #
 # Keeping both, and naming them so the difference needs no footnote, is worth
 # more than making either one perfect. Demonstrating the dev overlay and

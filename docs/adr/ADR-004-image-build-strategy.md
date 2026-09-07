@@ -19,7 +19,7 @@ An immutable image requires a successful compile at build time, and the compile 
 
 **It is closed.** `commerce-vanilla` contains no encoded package and nothing that fails to compile; `setup:di:compile` completes in about 50 seconds and `COMPILE_EXCLUDES` is empty. The mechanism below stays anyway, because the next dependency that cannot be compiled should be excluded loudly rather than worked around silently.
 
-This is a defect that has nothing to do with Kubernetes, and it blocks the whole build. There are three ways past it: build against a tree that does not contain the package, exclude it at build time and accept a divergent image, or fix the loader — which is out of scope here.
+This is a defect that has nothing to do with Kubernetes, and it blocks the whole build. There are three ways past it: build against a tree that doesn't contain the package, exclude it at build time and accept a divergent image, or fix the loader — which is out of scope here.
 
 ## Decision
 
@@ -28,9 +28,9 @@ This is a defect that has nothing to do with Kubernetes, and it blocks the whole
 - `php-base` — extensions and loaders. No application, no composer, no Xdebug. Shared by every other target, so the runtime surface is provably identical between the development pool and the production-shaped one.
 - `dev` — `php-base` plus Xdebug and composer, and **no application code**: the dev overlay mounts the working tree. See [ADR-007](ADR-007-dev-overlay-mounted-source.md).
 - `builder` — runs `composer install`, removes the packages named in `COMPILE_EXCLUDES`, then `setup:di:compile` and `setup:static-content:deploy`.
-- `runtime` — `php-base` plus the built `/app`. The default target and the deliverable.
+- `runtime` — `php-base` plus the built `/app`. The default target, and the one that ships.
 
-`COMPILE_EXCLUDES` is **empty**, which is the goal state. When it is not, the build **prints what it is removing**, writes the list to `/app/var/.compile-excludes` inside the image, and the entrypoint prints it again at container start.
+`COMPILE_EXCLUDES` is **empty**, which is the goal state. When it isn't, the build **prints what it is removing**, writes the list to `/app/var/.compile-excludes` inside the image, and the entrypoint prints it again at container start.
 
 `SKIP_COMPILE=true` exists so the manifests can be iterated on before any of this is settled. An image built with it carries a marker file, and the prod-shaped overlay sets `MAGENTO_REQUIRE_COMPILED=true` so the entrypoint **refuses to start it**.
 
@@ -52,20 +52,20 @@ This is a defect that has nothing to do with Kubernetes, and it blocks the whole
 
 **Advantages** — Sidesteps the failing compile without removing anything.
 
-**Disadvantages** — There was no *elsewhere*: the compile failed in the only environment that had the source. It also produces an image whose `generated/` does not correspond to its `vendor/`, which is a worse failure than a missing package because it is invisible until a specific interceptor is needed.
+**Disadvantages** — There was no *elsewhere*: the compile failed in the only environment that had the source. It also produces an image whose `generated/` doesn't correspond to its `vendor/`, which is a worse failure than a missing package because it's invisible until a specific interceptor is needed.
 
-> [!important] Excluding a package makes the image diverge from what `composer.lock` says it is, and that is the cost
-> Whatever the excluded package does is simply absent — and absent in a way that will look like an infrastructure problem when someone hits it, because nothing in the runtime says a package was removed. That is why an exclusion is printed at build time, written to `/app/var/.compile-excludes` inside the image, and printed again at container start. **A workaround nobody can see is indistinguishable from a bug.**
+> [!important] Excluding a package makes the image diverge from what `composer.lock` says it's, and that's the cost
+> Whatever the excluded package does is simply absent — and absent in a way that will look like an infrastructure problem when someone hits it, because nothing in the runtime says a package was removed. That's why an exclusion is printed at build time, written to `/app/var/.compile-excludes` inside the image, and printed again at container start. **A workaround nobody can see is indistinguishable from a bug.**
 >
 > Nothing is excluded today. This is the mechanism waiting for the next package that needs it, not a description of the current image.
 
 ## Consequences
 
 - **Two things the production release process carries have nowhere to live, and are dropped rather than translated:**
-    - **`custom_files`** — hand-placed per-release artifacts. There is no per-release hand placement step in an immutable-image model.
-    - **The patch library** — 201 hotfixes with apply and revert parity. In this model patches are applied at build time, and reverting one means redeploying the previous image. **That is a capability change, not a like-for-like translation**, and it is the single most consequential thing this decision gives up. Reverting one patch independently of everything else in the release is not possible here.
-- **A deploy now depends on a build.** Under Compose, changing a file changed the running application. Here it changes nothing until an image is built, loaded and rolled. That is the point, and it is also the thing that will feel worst in daily use — which is what [ADR-007](ADR-007-dev-overlay-mounted-source.md) exists to answer.
-- **Acceptance criterion A7 cannot be fully met and the repository says so.** Two builds from one commit do not produce the same digest: the base image is a moving tag, apt pulls whatever the mirror has, and every layer carries a timestamp. `scripts/verify-image.sh` checks the part that is achievable — that the *application content* of two builds is identical — and its header states plainly what it is not checking and why.
+    - **`custom_files`** — hand-placed per-release artifacts. There's no per-release hand placement step in an immutable-image model.
+    - **The patch library** — 201 hotfixes with apply and revert parity. In this model patches are applied at build time, and reverting one means redeploying the previous image. **That is a capability change, not a like-for-like translation**, and it's the single most consequential thing this decision gives up. Reverting one patch independently of everything else in the release is not possible here.
+- **A deploy now depends on a build.** Under Compose, changing a file changed the running application. Here it changes nothing until an image is built, loaded and rolled. That's the point, and it's also the thing that will feel worst in daily use — which is what [ADR-007](ADR-007-dev-overlay-mounted-source.md) exists to answer.
+- **Acceptance criterion A7 cannot be fully met and the repository says so.** Two builds from one commit don't produce the same digest: the base image is a moving tag, apt pulls whatever the mirror has, and every layer carries a timestamp. `scripts/verify-image.sh` checks the part that's achievable — that the *application content* of two builds is identical — and its header states plainly what it isn't checking and why.
 - **No registry.** kind loads an image straight from the local daemon. Introducing a registry for a single-node local cluster would be scope invented to fill a section.
 
 ## Related

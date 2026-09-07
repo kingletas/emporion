@@ -9,7 +9,7 @@
 
 - [What is generated, and where it goes](#what-is-generated-and-where-it-goes)
 - [The gate](#the-gate)
-- [What the hardened overlay does and does not prove](#what-the-hardened-overlay-does-and-does-not-prove)
+- [What the hardened overlay does and doesn't prove](#what-the-hardened-overlay-does-and-does-not-prove)
 - [Reporting something](#reporting-something)
 
 ## What is generated, and where it goes
@@ -27,7 +27,7 @@ Directories are created mode `700` and each value mode `600`. **One generator fe
 
 **The crypt key is the one value a store may inherit.** A store seeded from a snapshot cannot read what that snapshot encrypted unless it holds the key that encrypted it, so a seeded store takes the key and an empty one generates its own. A snapshot records a **fingerprint** of the key, never the key. `make sites` prints every store's fingerprint, so two stores sharing one is visible rather than inferred.
 
-**TLS is read at bootstrap and never committed.** `CERTS_HOME` defaults to `certs/` in this repository, which is gitignored precisely because that is where a key would otherwise land.
+**TLS is read at bootstrap and never committed.** `CERTS_HOME` defaults to `certs/` in this repository, which is gitignored precisely because that's where a key would otherwise land.
 
 ## The gate
 
@@ -37,18 +37,18 @@ make check
 
 Three things run, and all three fail the build:
 
-- **`make scan`** — that `secrets/` and `certs/` are ignored, that no file git could reach matches a credential pattern, and that no `.key` or `.pem` is inside the tree. **It scans the working tree rather than the index**, because a secret that is merely untracked is still one `git add -A` away from being committed.
+- **`make scan`** — that `secrets/` and `certs/` are ignored, that no file git could reach matches a credential pattern, and that no `.key` or `.pem` is inside the tree. **It scans the working tree rather than the index**, because a secret that's merely untracked is still one `git add -A` away from being committed.
 - **`scripts/check-no-private-info.sh`** — no absolute home path, and not the login or hostname of whoever is running it. Those two are read at run time rather than written down: a check that hardcoded them would be the leak it exists to prevent, and reading them means it protects the next contributor rather than the last one.
-- **`make lint`** — including that no two stores share a namespace. A collision there is not a security boundary, but four of the five fail silently, and a store quietly reading another's data is worth a gate.
+- **`make lint`** — including that no two stores share a namespace. A collision there's not a security boundary, but four of the five fail silently, and a store quietly reading another's data is worth a gate.
 
-## What the hardened overlay does and does not prove
+## What the hardened overlay does and doesn't prove
 
-`k8s/overlays/prod-shaped` sets `readOnlyRootFilesystem`, drops all capabilities, turns off opcache revalidation and runs two storefront replicas. **It is named `prod-shaped` because it is a shape, not a posture.** There is no network policy, no admission control, no image scanning, no secret management beyond files on disk, and no cluster here serves traffic.
+`k8s/overlays/prod-shaped` sets `readOnlyRootFilesystem`, drops all capabilities, turns off opcache revalidation and runs two storefront replicas. **It is named `prod-shaped` because it is a shape, not a posture.** There's no network policy, no admission control, no image scanning, no secret management beyond files on disk, and no cluster here serves traffic.
 
 Read it as evidence that the image can run without writing to its own root — which is a real property, and is the one the `dev` overlay deliberately gives up.
 
 ## Reporting something
 
-Open an issue. If it is something you would rather not put in public, email **code@kingletas.com**.
+Open an issue. If it's something you would rather not put in public, email **code@kingletas.com**.
 
-This is a workstation environment with one operator, so there is no embargo process to observe and no security release channel. **A vulnerability in Magento itself is Adobe's**, and should go to them rather than here.
+This is a workstation environment with one operator, so there's no embargo process to observe and no security release channel. **A vulnerability in Magento itself is Adobe's**, and should go to them rather than here.
