@@ -1,0 +1,56 @@
+# nginx serves pub/ straight from the mounted tree, so the stage-static
+# initContainer has nothing to stage. It is neutered rather than deleted:
+# a no-op that says why is easier to read six months later than a container
+# that silently is not there in one overlay.
+#
+# pub/media comes from the tree too, so the shared claim is not mounted in
+# this mode at all — which is worth noticing, because it means the dev overlay
+# exercises none of ADR-003. Only prod-shaped does.
+- op: replace
+  path: /spec/template/spec/initContainers/0/command
+  value:
+    - sh
+    - -c
+    - 'echo "dev overlay: pub/ is a hostPath mount, nothing to stage"'
+
+- op: replace
+  path: /spec/template/spec/volumes
+  value:
+    - name: nginx-config
+      configMap:
+        name: nginx-config
+    - name: nginx-templates
+      configMap:
+        name: nginx-config
+        items:
+          - key: app.conf.template
+            path: app.conf.template
+    - name: pub
+      hostPath:
+        path: /magento-src/pub
+        type: Directory
+    - name: tmp
+      emptyDir: {}
+
+- op: replace
+  path: /spec/template/spec/initContainers/0/volumeMounts
+  value:
+    - name: pub
+      mountPath: /pub
+
+- op: replace
+  path: /spec/template/spec/containers/0/volumeMounts
+  value:
+    - name: nginx-config
+      mountPath: /etc/nginx/nginx.conf
+      subPath: nginx.conf
+    - name: nginx-config
+      mountPath: /etc/nginx/magento.conf
+      subPath: magento.conf
+    - name: nginx-templates
+      mountPath: /etc/nginx/templates/app.conf.template
+      subPath: app.conf.template
+    - name: pub
+      mountPath: /app/pub
+    - name: tmp
+      mountPath: /tmp

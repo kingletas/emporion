@@ -1,0 +1,459 @@
+# The three nginx pools.
+#
+# Each forwards FastCGI to its own PHP pool, exactly as under Compose, with
+# FASTCGI_BACKEND now naming a Service instead of a container:
+#
+#   web        -> php-fpm     storefront
+#   web-admin  -> php-admin   admin
+#   web-cron   -> php-cron    static and media, per the VCL fallback director
+#
+# THE PROBLEM THESE POOLS CREATE, stated rather than hidden:
+#
+# nginx serves pub/static and pub/errors from disk with try_files. That is
+# free when the whole tree is bind-mounted into every container. With the code
+# in an image instead, an nginx pod has no application tree at all.
+#
+# Three ways out, and this file takes the third:
+#
+#   1. Proxy static through PHP. Correct, and gives up the entire reason for
+#      having a web tier.
+#   2. Run nginx as a sidecar in the PHP pod, sharing a volume. Cheapest, and
+#      it collapses six Deployments into three — which breaks the one-service-
+#      per-job mapping the rest of this repository keeps, and removes the
+#      ability to scale the web tier and the PHP tier independently. That
+#      ability is one of the few things the cluster gets that Compose cannot
+#      express.
+#   3. An initContainer running the application image, copying pub/static and
+#      pub/errors into an emptyDir the nginx container then serves.
+#
+# Option 3 costs a copy of the static content per web pod at start-up, and
+# that cost is real — it is the largest single thing in the image. It buys an
+# independently scalable web tier and keeps the mapping honest. If the static
+# content ever grows past the point where that copy is tolerable, option 2 is
+# the answer and it should be taken deliberately, not discovered.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+spec:
+  selector:
+    app.kubernetes.io/name: web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    # See the note in php-pools.yaml: a patch target selects on these,
+    # not on the pod template's labels.
+    vanilla.dev/tier: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+        vanilla.dev/tier: web
+    spec:
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        # Not a wait. This copies the static assets out of the application
+        # image so the nginx container has something to serve — work, not
+        # sequencing, which is what keeps it inside the letter of A5.
+        - name: stage-static
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /pub/static /pub/errors
+              cp -a /app/pub/static/. /pub/static/ 2>/dev/null || true
+              cp -a /app/pub/errors/. /pub/errors/ 2>/dev/null || true
+              # index.php and get.php are never executed by nginx — the
+              # FastCGI pass sends SCRIPT_FILENAME to php-fpm, which resolves
+              # it against its own /app. They are copied because try_files
+              # tests for their existence before passing.
+              cp -a /app/pub/index.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/get.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/static.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/health_check.php /pub/ 2>/dev/null || true
+              echo "staged $(du -sh /pub 2>/dev/null | cut -f1) of static content"
+          volumeMounts:
+            - name: pub
+              mountPath: /pub
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      containers:
+        - name: nginx
+          image: nginx:1.28.0
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FASTCGI_BACKEND
+              value: php-fpm
+            # Restrict envsubst to FASTCGI_BACKEND so nginx's own $variables
+            # survive the template pass. Same trap as under Compose.
+            - name: NGINX_ENVSUBST_FILTER
+              value: FASTCGI_BACKEND
+            - name: NGINX_ENVSUBST_OUTPUT_DIR
+              value: /etc/nginx/conf.d
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: nginx-config
+              mountPath: /etc/nginx/magento.conf
+              subPath: magento.conf
+            - name: nginx-templates
+              mountPath: /etc/nginx/templates/app.conf.template
+              subPath: app.conf.template
+            - name: pub
+              mountPath: /app/pub
+            - name: media
+              mountPath: /app/pub/media
+            - name: tmp
+              mountPath: /tmp
+          # /nginx-health, not /health_check.php. A web pod's readiness must
+          # describe the web pod: probing through to PHP would take every web
+          # pod out of its Service the moment a php-fpm pod restarted, which
+          # is the coupling the move to probes is meant to remove.
+          readinessProbe:
+            httpGet:
+              path: /nginx-health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /nginx-health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-templates
+          configMap:
+            name: nginx-config
+            items:
+              - key: app.conf.template
+                path: app.conf.template
+        - name: pub
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-admin
+  labels:
+    app.kubernetes.io/name: web-admin
+spec:
+  selector:
+    app.kubernetes.io/name: web-admin
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-admin
+  labels:
+    app.kubernetes.io/name: web-admin
+    # See the note in php-pools.yaml: a patch target selects on these,
+    # not on the pod template's labels.
+    vanilla.dev/tier: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web-admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web-admin
+        vanilla.dev/tier: web
+    spec:
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        # Not a wait. This copies the static assets out of the application
+        # image so the nginx container has something to serve — work, not
+        # sequencing, which is what keeps it inside the letter of A5.
+        - name: stage-static
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /pub/static /pub/errors
+              cp -a /app/pub/static/. /pub/static/ 2>/dev/null || true
+              cp -a /app/pub/errors/. /pub/errors/ 2>/dev/null || true
+              # index.php and get.php are never executed by nginx — the
+              # FastCGI pass sends SCRIPT_FILENAME to php-fpm, which resolves
+              # it against its own /app. They are copied because try_files
+              # tests for their existence before passing.
+              cp -a /app/pub/index.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/get.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/static.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/health_check.php /pub/ 2>/dev/null || true
+              echo "staged $(du -sh /pub 2>/dev/null | cut -f1) of static content"
+          volumeMounts:
+            - name: pub
+              mountPath: /pub
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      containers:
+        - name: nginx
+          image: nginx:1.28.0
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FASTCGI_BACKEND
+              value: php-admin
+            # Restrict envsubst to FASTCGI_BACKEND so nginx's own $variables
+            # survive the template pass. Same trap as under Compose.
+            - name: NGINX_ENVSUBST_FILTER
+              value: FASTCGI_BACKEND
+            - name: NGINX_ENVSUBST_OUTPUT_DIR
+              value: /etc/nginx/conf.d
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: nginx-config
+              mountPath: /etc/nginx/magento.conf
+              subPath: magento.conf
+            - name: nginx-templates
+              mountPath: /etc/nginx/templates/app.conf.template
+              subPath: app.conf.template
+            - name: pub
+              mountPath: /app/pub
+            - name: media
+              mountPath: /app/pub/media
+            - name: tmp
+              mountPath: /tmp
+          # /nginx-health, not /health_check.php. A web pod's readiness must
+          # describe the web pod: probing through to PHP would take every web
+          # pod out of its Service the moment a php-fpm pod restarted, which
+          # is the coupling the move to probes is meant to remove.
+          readinessProbe:
+            httpGet:
+              path: /nginx-health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /nginx-health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-templates
+          configMap:
+            name: nginx-config
+            items:
+              - key: app.conf.template
+                path: app.conf.template
+        - name: pub
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-cron
+  labels:
+    app.kubernetes.io/name: web-cron
+spec:
+  selector:
+    app.kubernetes.io/name: web-cron
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-cron
+  labels:
+    app.kubernetes.io/name: web-cron
+    # See the note in php-pools.yaml: a patch target selects on these,
+    # not on the pod template's labels.
+    vanilla.dev/tier: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web-cron
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web-cron
+        vanilla.dev/tier: web
+    spec:
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        # Not a wait. This copies the static assets out of the application
+        # image so the nginx container has something to serve — work, not
+        # sequencing, which is what keeps it inside the letter of A5.
+        - name: stage-static
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /pub/static /pub/errors
+              cp -a /app/pub/static/. /pub/static/ 2>/dev/null || true
+              cp -a /app/pub/errors/. /pub/errors/ 2>/dev/null || true
+              # index.php and get.php are never executed by nginx — the
+              # FastCGI pass sends SCRIPT_FILENAME to php-fpm, which resolves
+              # it against its own /app. They are copied because try_files
+              # tests for their existence before passing.
+              cp -a /app/pub/index.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/get.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/static.php /pub/ 2>/dev/null || true
+              cp -a /app/pub/health_check.php /pub/ 2>/dev/null || true
+              echo "staged $(du -sh /pub 2>/dev/null | cut -f1) of static content"
+          volumeMounts:
+            - name: pub
+              mountPath: /pub
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      containers:
+        - name: nginx
+          image: nginx:1.28.0
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FASTCGI_BACKEND
+              value: php-cron
+            # Restrict envsubst to FASTCGI_BACKEND so nginx's own $variables
+            # survive the template pass. Same trap as under Compose.
+            - name: NGINX_ENVSUBST_FILTER
+              value: FASTCGI_BACKEND
+            - name: NGINX_ENVSUBST_OUTPUT_DIR
+              value: /etc/nginx/conf.d
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: nginx-config
+              mountPath: /etc/nginx/magento.conf
+              subPath: magento.conf
+            - name: nginx-templates
+              mountPath: /etc/nginx/templates/app.conf.template
+              subPath: app.conf.template
+            - name: pub
+              mountPath: /app/pub
+            - name: media
+              mountPath: /app/pub/media
+            - name: tmp
+              mountPath: /tmp
+          # /nginx-health, not /health_check.php. A web pod's readiness must
+          # describe the web pod: probing through to PHP would take every web
+          # pod out of its Service the moment a php-fpm pod restarted, which
+          # is the coupling the move to probes is meant to remove.
+          readinessProbe:
+            httpGet:
+              path: /nginx-health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /nginx-health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-templates
+          configMap:
+            name: nginx-config
+            items:
+              - key: app.conf.template
+                path: app.conf.template
+        - name: pub
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,108 @@
+# Replace the image's /app with the host's working tree.
+#
+# /magento-src is a node path that kind maps from the host (see
+# cluster/kind-config.yaml). This is the only overlay that uses it: the
+# prod-shaped overlay and the Compose runtime both carry the code in the image.
+#
+# env.php is the subtle one. /app/app/etc/env.php would be a real file in the
+# working tree, and a pod writing there would put cluster service names and
+# cluster credentials into a tree that is also the build input for the image
+# and for the Compose runtime. So an emptyDir file is mounted OVER it and the
+# entrypoint writes there: the tree on disk is shadowed, never modified, and
+# stays the clean source it has to be.
+#
+# THE INIT CONTAINER BELOW IS WHAT MAKES THAT POSSIBLE, and without it every
+# PHP pod fails to start outright:
+#
+#   error mounting ".../volume-subpaths/env-php/php-fpm/3" to rootfs at
+#   "/app/app/etc/env.php": ... not a directory
+#
+# A subPath that does not yet exist inside the volume is created by the
+# kubelet as a DIRECTORY, and a directory cannot be bind-mounted over a file.
+# The entrypoint would create the file, but it runs after the mount, so the
+# dependency is circular. Seeding the emptyDir with a real, correctly-owned
+# file first is what breaks it — the kubelet then finds a file and binds it
+# as one. This is work rather than sequencing, so it does not violate A5 for
+# the same reason the OpenSearch sysctl container does not.
+- op: add
+  path: /spec/template/spec/initContainers
+  value:
+    - name: seed-env-php
+      image: busybox:1.36
+      # Owned by the image's app user (1001) and group-writable, because the
+      # main container runs as `app` and the entrypoint copies the generated
+      # file over this one on every start.
+      command:
+        - sh
+        - -c
+        - 'install -o 1001 -g 1001 -m 0660 /dev/null /work/env.php'
+      volumeMounts:
+        - name: env-php
+          mountPath: /work
+
+    # generated/ is pod-local, so this overlay never writes compiled DI back
+    # into the tree that the image is built from. Seeding it from whatever the
+    # tree already has is what keeps the first request from hanging: in
+    # developer mode Magento generates every missing interceptor and factory on
+    # demand, and doing that from nothing takes longer than any timeout in the
+    # chain -- the request hangs, nginx reports a 502 from a "connection reset
+    # by peer", and nothing anywhere says the word compile.
+    #
+    # On a freshly installed tree generated/ is empty and this copies nothing,
+    # which is correct and cheap. It starts mattering the moment anything has
+    # run setup:di:compile on disk.
+    - name: seed-generated
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - 'cp -a /src/. /generated/ 2>/dev/null || true; chown -R 1001:1001 /generated'
+      volumeMounts:
+        - name: app-src
+          mountPath: /src
+          readOnly: true
+          subPath: generated
+        - name: generated
+          mountPath: /generated
+
+- op: replace
+  path: /spec/template/spec/volumes
+  value:
+    - name: app-src
+      hostPath:
+        path: /magento-src
+        type: Directory
+    - name: php-dev-ini
+      configMap:
+        name: php-dev-ini
+    - name: env-php
+      emptyDir: {}
+    # var/ and generated/ are pod-local here for the same reason env.php is a
+    # shadowed mount: /app IS the on-disk working tree in this overlay, and
+    # these are the two directories a pod would otherwise write into.
+    #
+    # generated/ is the one that matters. This overlay runs
+    # MAGENTO_MODE=developer and regenerates interceptors on demand; the tree
+    # it is mounting is the build input for the runtime image. Letting a
+    # developer-mode pod rewrite it means the next image is built from
+    # something no one chose.
+    - name: var
+      emptyDir: {}
+    - name: generated
+      emptyDir: {}
+
+- op: replace
+  path: /spec/template/spec/containers/0/volumeMounts
+  value:
+    - name: app-src
+      mountPath: /app
+    - name: php-dev-ini
+      mountPath: /usr/local/etc/php/conf.d/99-dev.ini
+      subPath: 99-dev.ini
+    - name: env-php
+      mountPath: /app/app/etc/env.php
+      subPath: env.php
+    - name: var
+      mountPath: /app/var
+    - name: generated
+      mountPath: /app/generated

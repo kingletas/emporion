@@ -1,0 +1,126 @@
+# MariaDB. StatefulSet rather than Deployment, and the reason is not that it
+# has a volume — a Deployment can have one of those. It is that the identity
+# has to be stable: the PVC must follow the pod, and `db-0` must be the same
+# database after a replacement. volumeClaimTemplates is what expresses that.
+#
+# The host bind mount this replaces (${DOCKER_HOME}/var/lib/mysql, a ~38 GB
+# datadir) is untouched and still belongs to the Compose stack. Nothing here
+# reads it. That is deliberate: the point is a cluster that can be
+# destroyed and rebuilt, and a datadir shared with a second environment would
+# make "destroy" mean something much worse.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  labels:
+    app.kubernetes.io/name: mariadb
+spec:
+  # Headless. StatefulSet pods get stable DNS (mariadb-0.mariadb) from this,
+  # and there is exactly one replica so there is nothing to load-balance.
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+# A second, non-headless Service so `db:3306` resolves the way it does under
+# Compose. Application config points here; nothing has to know about ordinals.
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  labels:
+    app.kubernetes.io/name: mariadb
+spec:
+  selector:
+    app.kubernetes.io/name: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mariadb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mariadb
+    spec:
+      # A 38 GB InnoDB instance killed at the default 30s grace period comes
+      # back into crash recovery, and the Compose environment has hit exactly
+      # that — `restart: unless-stopped` masked it and docker inspect reported
+      # a clean exit. Give it time to flush.
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: mariadb
+          image: mariadb:11.4
+          ports:
+            - name: mysql
+              containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: vanilla-db
+          env:
+            - name: MARIADB_AUTO_UPGRADE
+              value: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: config
+              mountPath: /etc/mysql/mariadb.conf.d/100-custom.cnf
+              subPath: 100-custom.cnf
+          # The same healthcheck the Compose file uses. --innodb_initialized
+          # is the part that matters: a server accepting connections during
+          # InnoDB recovery will answer a plain ping and then fail every query.
+          readinessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          # startupProbe is what replaces `depends_on: service_healthy` for a
+          # first boot that has to initialise a database. Without it the
+          # liveness probe would start killing the pod mid-initialisation.
+          startupProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            periodSeconds: 10
+            failureThreshold: 60
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: config
+          configMap:
+            name: mariadb-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

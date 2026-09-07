@@ -1,0 +1,79 @@
+# The same source substitution as patch-php-source.yaml, for the Job and the
+# CronJobs.
+#
+# It is a separate file rather than a shared one because the Deployments and
+# the CronJobs do not have the same pod-spec path — a CronJob's is nested
+# under jobTemplate — so a single JSON 6902 patch cannot address both.
+#
+# THIS FILE EXISTS BECAUSE ITS ABSENCE WAS INVISIBLE. The dev overlay patched
+# every Deployment and nothing else, so the setup:upgrade Job and both cron
+# groups ran the DEV image — which contains no application code at all, on
+# purpose (ADR-007) — with nothing mounted at /app. The failure was:
+#
+#   Could not open input file: bin/magento
+#
+# which reads like a broken image rather than a missing overlay patch. Both
+# CronJobs were separately stuck in Pending on the media claim at the time, so
+# the Job was the only one that ever got far enough to say anything.
+- op: add
+  path: /spec/template/spec/initContainers
+  value:
+    - name: seed-env-php
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - 'install -o 1001 -g 1001 -m 0660 /dev/null /work/env.php'
+      volumeMounts:
+        - name: env-php
+          mountPath: /work
+    - name: seed-generated
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - 'cp -a /src/. /generated/ 2>/dev/null || true; chown -R 1001:1001 /generated'
+      volumeMounts:
+        - name: app-src
+          mountPath: /src
+          readOnly: true
+          subPath: generated
+        - name: generated
+          mountPath: /generated
+
+# THIS DROPS THE MEDIA CLAIM AND THE stage-media INIT CONTAINER, and that is
+# right rather than an oversight. In this overlay /app IS the working tree, and
+# magento/sample-data-media has already installed its images into that tree's
+# pub/media as an ordinary Composer package. There is nothing to seed and
+# nothing to seed it into: the images are simply there.
+#
+# The prod-shaped overlay and the Compose runtime need the staging step because
+# the code is in an image and a volume is mounted over the path the images live
+# at. Two different answers to one problem, which is the difference the two
+# modes exist to make visible.
+- op: replace
+  path: /spec/template/spec/volumes
+  value:
+    - name: app-src
+      hostPath:
+        path: /magento-src
+        type: Directory
+    - name: env-php
+      emptyDir: {}
+    - name: var
+      emptyDir: {}
+    - name: generated
+      emptyDir: {}
+
+- op: replace
+  path: /spec/template/spec/containers/0/volumeMounts
+  value:
+    - name: app-src
+      mountPath: /app
+    - name: env-php
+      mountPath: /app/app/etc/env.php
+      subPath: env.php
+    - name: var
+      mountPath: /app/var
+    - name: generated
+      mountPath: /app/generated

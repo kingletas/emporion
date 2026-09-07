@@ -1,0 +1,68 @@
+# The ingress. It replaces the `proxy` container and the whole nginx-proxy /
+# VIRTUAL_HOST mechanism, and it does one job: terminate TLS for vanilla.test and
+# hand the request to Varnish.
+#
+# It is deliberately not doing any routing. Every routing decision — admin to
+# the admin pool, static and media to the cron pool — is a Varnish decision,
+# because that is where it was, and moving it up into ingress annotations
+# would be the "delete Varnish, use an ingress" translation wearing a disguise.
+#
+# TLS comes from Secret/<site-slug>-tls, created by cluster-up.sh from the
+# mkcert pair the host browser already trusts. No cert-manager: a local CA that
+# the browser trusts already exists, and adding an issuer to reproduce it would
+# be scope invented to fill a section.
+#
+# THE HOSTNAME HERE IS THE CLUSTER'S DEFAULT SITE, not a fixed one. The cluster
+# serves one store at a time — it binds 127.0.0.1:80 and refuses to exist
+# beside a Compose stack — and scripts/deploy.sh rewrites these three values
+# when asked for a different site, through a generated overlay. Multi-site is a
+# Compose feature; a second hostname here would need a second port.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vanilla
+  annotations:
+    # Magento posts large forms (product import, admin grids) and returns
+    # large headers. The controller's defaults are well below both.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1g"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "512k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "8"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    # Varnish decides what is cacheable from X-Forwarded-Proto, and this used
+    # to set it with a configuration-snippet annotation. That is now REJECTED
+    # by the controller's own admission webhook --
+    #
+    #   admission webhook "validate.nginx.ingress.kubernetes.io" denied the
+    #   request: nginx.ingress.kubernetes.io/configuration-snippet annotation
+    #   cannot be used. Snippet directives are disabled by the Ingress
+    #   administrator
+    #
+    # -- because snippets are off by default in current ingress-nginx after
+    # the annotation-injection CVEs. The snippet was also redundant: the
+    # controller's own template already emits
+    # `proxy_set_header X-Forwarded-Proto $pass_access_scheme`, so removing it
+    # changes nothing that reaches Varnish. `make smoke` A11 is what proves
+    # that, by requiring a cache HIT through the full chain.
+    #
+    # Do NOT fix this by setting allow-snippet-annotations: true on the
+    # controller. That re-opens arbitrary nginx config injection from any
+    # namespace that can create an Ingress, to restore a header that is
+    # already being set.
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - vanilla.test
+      secretName: vanilla-test-tls
+  rules:
+    - host: vanilla.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: varnish
+                port:
+                  number: 80

@@ -1,0 +1,108 @@
+# Varnish, kept in the chain.
+#
+# The lazy translation of this stack deletes Varnish and lets the ingress do
+# the routing. That removes the component the storefront's performance depends
+# on and turns a real edge tier with cache invalidation semantics into a
+# routing rule (ADR-005). So Varnish runs as a Deployment behind the ingress,
+# and the ingress does exactly one thing Varnish cannot: terminate TLS.
+#
+# The `proxy` nginx container from the Compose file is deleted, not migrated.
+# It existed to terminate TLS and forward to Varnish, and the ingress
+# controller now does both.
+apiVersion: v1
+kind: Service
+metadata:
+  name: varnish
+  labels:
+    app.kubernetes.io/name: varnish
+spec:
+  selector:
+    app.kubernetes.io/name: varnish
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: varnish
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate. Two Varnish pods behind one Service means two
+  # independent caches and a purge that reaches one of them — which produces
+  # stale pages that appear and disappear depending on which pod answered.
+  # A shared invalidation story is a real design problem; pretending a rolling
+  # update is free is how it gets skipped.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: varnish
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: varnish
+    spec:
+      containers:
+        - name: varnish
+          image: varnish:7.5.0
+          args:
+            # Same tuned parameters as the Compose service. Magento sends very
+            # large response headers (the X-Magento-Tags list on a category
+            # page), and the stock 8k limit truncates them into a 503.
+            - "-p"
+            - "http_resp_hdr_len=85536"
+            - "-p"
+            - "http_resp_size=198304"
+            - "-p"
+            - "workspace_backend=198304"
+            - "-s"
+            - "malloc,256m"
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: vcl
+              mountPath: /etc/varnish/default.vcl
+              subPath: default.vcl
+            - name: varnish-lib
+              mountPath: /var/lib/varnish
+          # Varnish answers on 80 as soon as it is up, but it answers 503
+          # until a backend passes its own probe. Probing a real URL rather
+          # than the port is what makes the readiness of this pod mean
+          # "the edge can serve", which is what the ingress needs to know.
+          readinessProbe:
+            httpGet:
+              path: /health_check.php
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: vanilla.test
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: vcl
+          configMap:
+            name: varnish-vcl
+        # Varnish memory-maps its working directory. tmpfs rather than a plain
+        # emptyDir so it never lands on the node's disk, and sized above the
+        # -s malloc figure because the shared memory log lives here too.
+        - name: varnish-lib
+          emptyDir:
+            medium: Memory
+            sizeLimit: 384Mi

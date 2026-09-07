@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# fpm-ping — ask php-fpm whether it can execute PHP, for use as a probe.
+#
+# Usage:  fpm-ping [path]      (default: /ping)
+#
+# A tcpSocket probe on 9000 only proves the listener is bound. This runs a
+# real FastCGI request through the pool, which is the difference between
+# "the process started" and "the pool is serving" — and the rule here is that
+# every dependency is expressed as a probe rather than as startup ordering.
+
+set -euo pipefail
+
+path="${1:-/ping}"
+out="$(SCRIPT_NAME="$path" SCRIPT_FILENAME="$path" REQUEST_METHOD=GET \
+        cgi-fcgi -bind -connect 127.0.0.1:9000 2>&1)" || {
+    echo "$out" >&2
+    exit 1
+}
+
+case "$path" in
+    /ping) grep -q 'pong' <<<"$out" || { echo "$out" >&2; exit 1; } ;;
+    *)     grep -q 'pool:' <<<"$out" || { echo "$out" >&2; exit 1; } ;;
+esac

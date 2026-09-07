@@ -1,0 +1,9 @@
+# The build context here is only build/ — the Magento tree arrives as a
+# BuildKit named context (see the Dockerfile's builder stage), so there is
+# nothing large to exclude. These entries keep editor and OS droppings out of
+# the image layers anyway, because a changed .swp file would otherwise bust
+# the cache on every rebuild.
+**/.git
+**/.gitignore
+**/*.swp
+**/.DS_Store

@@ -1,0 +1,23 @@
+# One answer per file type, so an editor does not have to guess and a diff does
+# not carry whitespace nobody meant to change.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yaml,yml}]
+indent_size = 2
+
+[Makefile]
+# Make requires a real tab to open a recipe line. This is not a preference.
+indent_style = tab
+
+[*.md]
+# A trailing double space is a hard line break in markdown, and trimming it
+# silently changes the rendered text.
+trim_trailing_whitespace = false

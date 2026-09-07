@@ -1,0 +1,291 @@
+# The three PHP-FPM pools.
+#
+# Same image, three Deployments, different resources — which is the whole
+# reason they are separate services rather than replicas of one. Under Compose
+# they are separate because two of them use a different *image* (the nox
+# variant without Xdebug); here Xdebug is an overlay concern, so the images
+# are identical and the split is about what each pool is for.
+#
+#   php-fpm    the developer/storefront pool
+#   php-admin  admin traffic, isolated so an admin report cannot starve the
+#              storefront pool of workers
+#   php-cron   background work: the target of the CronJob and of anything
+#              long-running. Highest memory limit for the same reason it has
+#              4g under Compose.
+#
+# None of them mounts application code: it is in the image.
+# The dev overlay puts it back on a hostPath, deliberately and visibly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-fpm
+  labels:
+    app.kubernetes.io/name: php-fpm
+spec:
+  selector:
+    app.kubernetes.io/name: php-fpm
+  ports:
+    - name: fastcgi
+      port: 9000
+      targetPort: fastcgi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-fpm
+  labels:
+    app.kubernetes.io/name: php-fpm
+    # Also on the Deployment, not only on the pod template. An overlay's
+    # patch target selects against the object's own labels, so a selector
+    # that exists only under spec.template matches nothing — and matches
+    # nothing SILENTLY, which is how a patch can look applied and not be.
+    vanilla.dev/pool: storefront
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: php-fpm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: php-fpm
+        vanilla.dev/pool: storefront
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: php-fpm
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: fastcgi
+              containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # A real FastCGI request, not a TCP check. See build/rootfs/.../
+          # fpm-ping for why the distinction matters — this is the difference
+          # between "the listener is bound" and "the pool can execute PHP",
+          # and dependencies here are expressed as probes.
+          readinessProbe:
+            exec:
+              command: ["fpm-ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["fpm-ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 320Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        # var/ is pod-local, and that is a design decision rather than a
+        # convenience: nothing under var/ is shared state once the cache is in
+        # Redis, the page cache is in Varnish and the sessions are in Valkey.
+        # Logs go to stdout. What is left is scratch.
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-admin
+  labels:
+    app.kubernetes.io/name: php-admin
+spec:
+  selector:
+    app.kubernetes.io/name: php-admin
+  ports:
+    - name: fastcgi
+      port: 9000
+      targetPort: fastcgi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-admin
+  labels:
+    app.kubernetes.io/name: php-admin
+    # Also on the Deployment, not only on the pod template. An overlay's
+    # patch target selects against the object's own labels, so a selector
+    # that exists only under spec.template matches nothing — and matches
+    # nothing SILENTLY, which is how a patch can look applied and not be.
+    vanilla.dev/pool: admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: php-admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: php-admin
+        vanilla.dev/pool: admin
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: php-fpm
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: fastcgi
+              containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          readinessProbe:
+            exec:
+              command: ["fpm-ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["fpm-ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-cron
+  labels:
+    app.kubernetes.io/name: php-cron
+spec:
+  selector:
+    app.kubernetes.io/name: php-cron
+  ports:
+    - name: fastcgi
+      port: 9000
+      targetPort: fastcgi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-cron
+  labels:
+    app.kubernetes.io/name: php-cron
+    # Also on the Deployment, not only on the pod template. An overlay's
+    # patch target selects against the object's own labels, so a selector
+    # that exists only under spec.template matches nothing — and matches
+    # nothing SILENTLY, which is how a patch can look applied and not be.
+    vanilla.dev/pool: background
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: php-cron
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: php-cron
+        vanilla.dev/pool: background
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: php-fpm
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: fastcgi
+              containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          readinessProbe:
+            exec:
+              command: ["fpm-ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["fpm-ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # 4Gi, and this one IS a measurement rather than a convention.
+              # At 1536Mi `bin/magento app:config:import` against the real
+              # configuration was OOM-killed by the kernel, and scripts run
+              # bin/magento with `-d memory_limit=-1` -- so PHP never raises
+              # its own allocation error and the only symptom is
+              # `command terminated with exit code 137`. A PHP memory limit
+              # inside a container is advisory; the cgroup limit is the real
+              # one, and removing the first just moves the failure somewhere
+              # far less legible. Compose gives this pool 4g.
+              memory: 4Gi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media

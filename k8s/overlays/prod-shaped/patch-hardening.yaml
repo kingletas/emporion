@@ -1,0 +1,54 @@
+# Read-only root filesystem for every PHP workload.
+#
+# This is the check on the image being self-contained that no amount of
+# reading the manifests can give.
+# The claim is that the application code is immutable and that the only
+# writable paths are var/, pub/media and the assembled env.php. If that is
+# true, this changes nothing. If it is false — if some module writes a cache
+# file into the code tree, or a library drops a temp file next to itself —
+# the pod fails on the first request and says exactly where.
+#
+# Every writable path is therefore declared, and the list being short is the
+# result being claimed:
+#
+#   /app/var        pod-local scratch           emptyDir  (from the base)
+#   /app/pub/media  the one shared claim        PVC       (from the base)
+#   /etc/magento    the assembled env.php       emptyDir  (from the base)
+#   /tmp            PHP upload and session tmp  emptyDir  (added here)
+#
+# JSON 6902 rather than a strategic merge, for the same reason as the dev
+# overlay: `add` to a list with `/-` appends without touching what is there,
+# where a merge would have to restate the whole list to be sure.
+- op: add
+  path: /spec/template/spec/securityContext/runAsNonRoot
+  value: true
+- op: add
+  path: /spec/template/spec/securityContext/runAsUser
+  value: 1001
+- op: add
+  path: /spec/template/spec/securityContext/runAsGroup
+  value: 1001
+- op: add
+  path: /spec/template/spec/securityContext/seccompProfile
+  value:
+    type: RuntimeDefault
+
+- op: add
+  path: /spec/template/spec/containers/0/securityContext
+  value:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: tmp
+    emptyDir: {}
+
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: tmp
+    mountPath: /tmp

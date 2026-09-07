@@ -1,0 +1,55 @@
+# Rendered at container start by the nginx image's envsubst pass over
+# /etc/nginx/templates, with NGINX_ENVSUBST_FILTER=FASTCGI_BACKEND so nginx's
+# own $variables survive. Same mechanism the Compose stack uses; it is the one
+# piece of that setup that ports across unchanged.
+#
+# ${FASTCGI_BACKEND} is a Service name here rather than a container name:
+#   web       -> php-fpm
+#   web-admin -> php-admin
+#   web-cron  -> php-cron
+#
+# Service DNS is the part of the Compose file that needed no translation at
+# all, and this is where that shows.
+
+upstream fastcgi_backend {
+    server ${FASTCGI_BACKEND}:9000;
+    keepalive 32;
+}
+
+map $http_host $MAGE_RUN_CODE {
+    default 'default';
+}
+
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    set $MAGE_ROOT /app;
+    set $MAGE_RUN_TYPE store;
+
+    keepalive_timeout 120s;
+    keepalive_requests 2048;
+    reset_timedout_connection on;
+
+    fastcgi_buffers 8 512k;
+    fastcgi_buffer_size 512k;
+    fastcgi_connect_timeout 600s;
+    fastcgi_send_timeout 600s;
+    fastcgi_read_timeout 600s;
+    fastcgi_busy_buffers_size 1024k;
+    fastcgi_temp_file_write_size 1024k;
+    fastcgi_intercept_errors on;
+    fastcgi_ignore_client_abort on;
+
+    # nginx's own liveness, answered without touching PHP. If this were
+    # /health_check.php instead, a php-fpm pod restart would take every web
+    # pod out of the Service with it — which is precisely the coupling the
+    # move to probes is supposed to remove.
+    location = /nginx-health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    include /etc/nginx/magento.conf;
+}

@@ -1,0 +1,122 @@
+# The install, run once per deploy.
+#
+# Idempotent by design: magento-install probes the database and either installs
+# it from empty or upgrades it in place, so this Job is correct on the first
+# deploy and on every one after it. scripts/deploy.sh deletes and recreates it
+# before rolling the Deployments — kustomize has no hooks, so the ordering is
+# explicit rather than declared.
+#
+# The name is fixed rather than generated so a failed install is still there to
+# read with `kubectl logs job/magento-install`.
+#
+# ALL of the logic is in magento-install, in the image, because the Compose
+# runtime runs the identical script as a one-shot service. An install that
+# behaved differently depending on which runtime performed it would be a
+# difference nobody would think to look for.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: magento-install
+spec:
+  backoffLimit: 0
+  # A first install with an empty database does real work — schema, EE data
+  # patches, then a full reindex — so this is longer than an upgrade needs.
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magento-install
+    spec:
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        # Seeds the media claim from the image, the same way stage-static seeds
+        # the web pods' static content, and for a reason that is easy to miss.
+        #
+        # magento/sample-data-media is a `magento2-component` package, so
+        # Composer installs its images into the SOURCE TREE's pub/media -- they
+        # are inside the image at /app/pub/media, 82 MB of them -- and then the
+        # media claim is mounted over exactly that path and hides every one.
+        #
+        # The failure is silent and looks like success: Magento's get.php
+        # answers a missing image with the placeholder and HTTP 200, so the
+        # catalogue renders, every request succeeds, and every product picture
+        # is a 1.7 KB grey square.
+        #
+        # It mounts the claim at /media-out rather than /app/pub/media on
+        # purpose: mounting it in place would hide the files this exists to
+        # copy. Work rather than sequencing, so it does not violate A5 for the
+        # same reason the OpenSearch sysctl container does not.
+        - name: stage-media
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              before=$(find /media-out -type f 2>/dev/null | wc -l)
+              # -n never clobbers, so an image uploaded through admin survives
+              # every deploy and this stays safe to run every time.
+              cp -an /app/pub/media/. /media-out/ 2>/dev/null || true
+              after=$(find /media-out -type f 2>/dev/null | wc -l)
+              echo "media: $before files before, $after after"
+          volumeMounts:
+            - name: media
+              mountPath: /media-out
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      containers:
+        - name: install
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          # magento-entrypoint is named explicitly, and it is not decoration.
+          # `command:` REPLACES the image's ENTRYPOINT -- it does not run
+          # before it -- so this Job used to start with no env.php generated
+          # at all and died on
+          #
+          #   Invalid configuration file: '/app/app/etc/env.php'
+          #
+          # The CronJobs beside it were unaffected because they use `args:`,
+          # which replaces CMD and leaves ENTRYPOINT in place. The entrypoint
+          # ends in `exec "$@"`, so naming it here writes the config and then
+          # runs magento-install exactly as any other command.
+          command:
+            - magento-entrypoint
+            - magento-install
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              # Matches the php-cron pool, and for the same measured reason:
+              # `app:config:import` peaked at ~2.9 GB RSS and was OOM-killed at
+              # 1536Mi. The scripts run bin/magento with `-d memory_limit=-1`,
+              # so PHP raises no allocation error of its own and the only
+              # evidence is exit 137.
+              memory: 4Gi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media

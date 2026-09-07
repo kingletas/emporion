@@ -1,0 +1,52 @@
+# prod-shaped overlay — the deliverable.
+#
+# "prod-shaped", not "prod": no cluster here serves traffic, and nothing here
+# is a production deployment. What this overlay does is refuse every shortcut
+# the dev overlay takes, so the thing being reasoned about is the real shape:
+#
+#   - the code is in the image and nowhere else
+#   - the root filesystem is read-only, so a component that quietly writes
+#     into the code tree fails loudly instead of working until replacement
+#   - the image must have been built with a successful di:compile
+#   - two replicas of the storefront pools, which is what makes A9 checkable:
+#     an image uploaded through admin has to be served by a pod that did not
+#     receive the upload
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vanilla
+
+resources:
+  - ../../base
+
+images:
+  - name: magento-app
+    newTag: local
+
+configMapGenerator:
+  - name: vanilla-env
+    behavior: merge
+    literals:
+      - MAGENTO_MODE=production
+      # The entrypoint refuses to start an image built with SKIP_COMPILE=true
+      # when this is set. That flag exists so the manifests can be iterated on
+      # before the compile in ADR-004 is settled, and an image built with it
+      # is not the deliverable — this is what stops it becoming one by
+      # accident.
+      - MAGENTO_REQUIRE_COMPILED=true
+
+replicas:
+  - name: php-fpm
+    count: 2
+  - name: web
+    count: 2
+
+patches:
+  - target:
+      kind: Deployment
+      labelSelector: "vanilla.dev/pool"
+    path: patch-hardening.yaml
+  - target:
+      kind: Deployment
+      labelSelector: "vanilla.dev/tier=consumer"
+    path: patch-hardening.yaml

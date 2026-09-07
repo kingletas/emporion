@@ -1,0 +1,81 @@
+# What a commit has to pass, run somewhere other than the machine that wrote it.
+#
+# `make check` is the gate: both cluster overlays render, both Compose files
+# validate for every store, no two stores share a namespace, shellcheck is
+# clean, nothing credential-shaped is committable, and nothing in the tree
+# names anyone's machine.
+#
+# `make secrets` runs first and that is not a convenience. The Compose files
+# read env fragments that the generator writes, so `docker compose config` on
+# a fresh clone fails on a missing file rather than on anything being wrong.
+# The values are throwaway local development credentials and never leave the
+# runner.
+#
+# `make smoke` is not here. It asks a running store questions, and a runner
+# has no store -- the honest place for it is a machine that has one.
+#
+# Actions are pinned to a full commit SHA, because whoever owns an action can
+# move a tag and the next run executes different code. Each SHA below was
+# resolved against api.github.com rather than typed.
+
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only. Nothing here writes to the repository, publishes, or needs a
+# token with more than the checkout.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: overlays, compose, namespaces, shellcheck, secrets
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # kustomize is reached through kubectl, which is what the scripts call.
+      # shellcheck and docker compose are already on the runner image; this
+      # fails loudly if that stops being true rather than skipping a check.
+      - name: Check the tools the gate needs are present
+        run: |
+          for tool in kubectl shellcheck docker python3; do
+            command -v "$tool" >/dev/null || { echo "missing: $tool"; exit 1; }
+          done
+          docker compose version >/dev/null
+
+      - name: Generate the local development credentials the Compose files read
+        run: make secrets
+
+      - name: Run the gate
+        run: make check
+
+  fresh-clone:
+    name: a fresh clone can do this from nothing
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The gate above runs in a checkout that has already been set up by the
+      # steps before it. This job asserts the narrower thing a contributor
+      # actually experiences: clone, two commands, working gate.
+      - name: Clone this checkout somewhere else and run the documented steps
+        run: |
+          git clone . /tmp/fresh
+          cd /tmp/fresh
+          make secrets
+          make check
+
+      - name: The documented default source path is where the README says
+        run: |
+          # MAGENTO_SRC defaults beside the repository, not into anyone's home.
+          grep -q 'MAGENTO_SRC:-\${K8S_REPO_ROOT%/\*}/commerce-vanilla' scripts/lib.sh

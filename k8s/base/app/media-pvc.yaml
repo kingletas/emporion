@@ -1,0 +1,53 @@
+# The shared writable webroot, reduced to the one directory that genuinely
+# needs to be shared. This is ADR-003.
+#
+# A bind-mounted Magento tree shares every writable path — pub/media,
+# pub/static, var/, generated/ — by accident, because they all sit inside the
+# one mount. Nothing here does that. Three pods reading and writing one
+# filesystem is
+# ReadWriteMany, the hardest storage mode to provide, and the honest way to
+# make it tractable was to stop needing it for most of those paths:
+#
+#   generated/   -> into the image at build time
+#   pub/static   -> into the image at build time
+#   var/         -> pod-local emptyDir; nothing in it is shared state
+#   pub/media    -> still shared. This claim.
+#
+# That leaves one RWX claim instead of a shared root filesystem, which is the
+# difference between a design and a bind mount with extra steps.
+#
+# THE HONEST CAVEAT: this works because the cluster has one node, and the
+# access mode has to SAY SO. This claim asked for ReadWriteMany until
+# 2026-08-26, on the reasoning that kind's local-path provisioner backs a PVC
+# with a hostPath, so every pod on the node sees the same directory and RWX is
+# satisfied by geography. That reasoning was wrong in the one way that matters:
+# the provisioner does not inspect the geography, it inspects the access mode,
+# and it refuses --
+#
+#   failed to provision volume with StorageClass "standard": NodePath only
+#   supports ReadWriteOnce and ReadWriteOncePod (1.22+) access modes
+#
+# So the claim never bound, and every pod that mounted it -- the setup:upgrade
+# Job and both cron CronJobs -- sat in Pending with no event of its own,
+# because a scheduler blocked on volume binding does not explain itself on the
+# pod. It was invisible until the cluster was actually run.
+#
+# ReadWriteOnce is what expresses the truth here. RWO binds the volume to ONE
+# NODE, not to one pod: every pod on that node can mount it, which is exactly
+# the sharing this needs and exactly the geography the old comment described.
+# Add a second node and pods scheduled there cannot mount it at all -- the same
+# limitation as before, now declared rather than assumed. ADR-003 records the
+# two alternatives that survive a multi-node cluster and why neither was built
+# here; what has changed is that the single-node case now works.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: magento-media
+  labels:
+    app.kubernetes.io/name: magento-media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

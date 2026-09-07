@@ -1,0 +1,110 @@
+# The working tree IS /app.
+#
+# Applied only when a site declares `SITE_SOURCE=mounted`. It is the Compose
+# equivalent of `k8s/overlays/dev`, and it answers the same question that
+# overlay answers for the cluster: **how does a code change reach a running
+# store without rebuilding the image?**
+#
+# The image path is the deliverable and it stays the default. But a full
+# `compose-build` re-runs composer, `setup:di:compile` and a static-content
+# deploy and then exports a 1.5 GB image — ten to twenty minutes, and enough
+# concurrent PHP to make the workstation unusable while it runs. Paying that to
+# change one line of a module is the wrong trade during development, and paying
+# it repeatedly is how a laptop gets taken down.
+#
+# Everything below follows from one decision and the four things it breaks.
+#
+#   1. **The tree is mounted at /app**, so the image's own copy is shadowed and
+#      an edit on the host is live in the container.
+#   2. **The containers run as the HOST user**, not as the image's `app` (1001).
+#      A mounted tree belongs to whoever edits it; a container writing
+#      `generated/` and `pub/static` as 1001 leaves files the host user cannot
+#      touch, and one running as 1001 against a tree owned by 1000 cannot write
+#      them at all.
+#   3. **`var/`, `pub/` and `pub/media` come from the tree**, replacing the
+#      anonymous and named volumes the base file mounts over them. Those are
+#      seeded from the image with the image's ownership, so leaving them would
+#      hand a container running as the host user three directories it cannot
+#      write — and Magento's failure for that is a 500 with nothing in the log,
+#      because the log is one of them.
+#   4. **env.php is written OUTSIDE the tree.** In the image the path is a
+#      symlink to a tmpfs; mounting the tree replaces it with whatever the tree
+#      has. A file under `secrets/<site>/` is bind-mounted over it instead, so
+#      the container writes its credentials and service names there and the
+#      tree stays the clean source the image is built from. Same reasoning, and
+#      the same solution, as the cluster overlay's emptyDir shadow.
+#
+# **Developer mode, and that is the point rather than a detail.** In production
+# mode a new module needs `setup:di:compile` before a single request works;
+# in developer mode Magento generates each interceptor and factory on demand.
+# The first request after a change is slow. Nothing else is.
+#
+# What this deliberately does NOT do is claim to resemble production. It is the
+# opposite of the prod-shaped path: writable root, host uid, developer mode,
+# no compiled DI. Measure nothing here and ship nothing from here.
+
+x-dev-app: &dev-app
+  # The image still supplies PHP, its extensions and the entrypoint. Only the
+  # application code comes from somewhere else.
+  read_only: false
+  user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+  environment:
+    MAGENTO_MODE: developer
+    MAGENTO_ENV_PHP: /app/app/etc/env.php
+    # libcurl reads this at init, so PHP's curl picks it up with no ini change.
+    CURL_CA_BUNDLE: /etc/ssl/certs/dev-ca-bundle.pem
+  volumes:
+    - ${MAGENTO_SRC:?set by scripts/lib.sh - run this through make}:/app
+    - ${SECRETS_DIR:?set by scripts/lib.sh - run this through make}/env.php:/app/app/etc/env.php
+    # Replace the base file's anonymous var volume and named media volume by
+    # mounting the tree's own directories on the same targets. A volume cannot
+    # be removed by an overlay; it can be overridden.
+    - ${MAGENTO_SRC}/var:/app/var
+    - ${MAGENTO_SRC}/pub/media:/app/pub/media
+    # The image's CA bundle with this machine's mkcert root appended, so PHP in
+    # here can call the other https://*.test stacks the way the host's browser
+    # already can. Without it the only way to reach one is over plain http, and
+    # a script tag pointing at http from an https storefront is blocked by the
+    # browser as mixed content — which is silent everywhere except a console.
+    - ${SECRETS_DIR}/ca-bundle.pem:/etc/ssl/certs/dev-ca-bundle.pem:ro
+    - ${SECRETS_DIR}/dev-ca.ini:/usr/local/etc/php/conf.d/zz-dev-ca.ini:ro
+
+x-dev-web: &dev-web
+  volumes:
+    - ./k8s/base/config/files/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    - ./k8s/base/config/files/nginx/magento.conf:/etc/nginx/magento.conf:ro
+    - ./k8s/base/config/files/nginx/app.conf.template:/etc/nginx/templates/app.conf.template:ro
+    # nginx serves static and media straight from the tree, so a theme file or
+    # a newly deployed asset needs no volume to be reseeded.
+    - ${MAGENTO_SRC}/pub:/app/pub
+    - ${MAGENTO_SRC}/pub/media:/app/pub/media
+
+services:
+  php-fpm:
+    <<: *dev-app
+  php-admin:
+    <<: *dev-app
+  php-cron:
+    <<: *dev-app
+  magento-install:
+    <<: *dev-app
+  magento-cron:
+    <<: *dev-app
+  consumer-async-operations:
+    <<: *dev-app
+  consumer-product-action-attribute:
+    <<: *dev-app
+  consumer-inventory-reservations-update:
+    <<: *dev-app
+  consumer-inventory-reservations-cleanup:
+    <<: *dev-app
+  consumer-media-gallery-synchronization:
+    <<: *dev-app
+  consumer-codegenerator:
+    <<: *dev-app
+  web:
+    <<: *dev-web
+  web-admin:
+    <<: *dev-web
+  web-cron:
+    <<: *dev-web

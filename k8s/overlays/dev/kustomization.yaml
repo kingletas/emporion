@@ -1,0 +1,93 @@
+# dev overlay — the working-tree mode.
+#
+# An immutable image and a live-edited application tree are directly opposed,
+# and editing Magento in place is how the work actually gets done. This overlay
+# takes the second side, and it is the ONLY thing in this repository that does:
+# the prod-shaped overlay and the Compose runtime both carry the code inside
+# the image.
+#
+#   dev           code on a hostPath, Xdebug available, opcache revalidating.
+#                 Fast to iterate, reproduces nothing.
+#   prod-shaped   code in the image, read-only, probes and limits enforced.
+#                 Slow to iterate, is the actual deliverable.
+#
+# Keeping both, and naming them so the difference needs no footnote, is worth
+# more than making either one perfect. Demonstrating the dev overlay and
+# calling it "Magento on Kubernetes" would be the version of this that proves
+# nothing -- it is here to keep the comparison honest, not to be the answer.
+#
+# EVERY PATCH BELOW IS JSON 6902, NOT A STRATEGIC MERGE, and that is a
+# correction rather than a preference. A strategic merge patch merges lists by
+# key: it would have ADDED an app-src volume beside the base's var and media
+# volumes rather than replacing them, and merged a hostPath into a volume that
+# already had a persistentVolumeClaim — producing an object with both, which
+# is invalid. `replace` on the whole list says what is meant.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vanilla
+
+resources:
+  - ../../base
+
+images:
+  - name: magento-app
+    newTag: local-dev
+
+configMapGenerator:
+  - name: vanilla-env
+    behavior: merge
+    literals:
+      - MAGENTO_MODE=developer
+      - MAGENTO_REQUIRE_COMPILED=false
+      - XDEBUG_MODE=off
+      # kind maps the host at the node's gateway. host.docker.internal does
+      # not port, and should be removed rather than reproduced — so it
+      # is not reproduced, it is replaced with the address that works here.
+      - XDEBUG_CLIENT_HOST=172.18.0.1
+      # In this mode /app IS the working tree, so the image's symlink from
+      # app/etc/env.php to /etc/magento/env.php is shadowed along with the
+      # rest of the image's /app. The entrypoint therefore writes straight to
+      # the tree's own path — but onto a single-file mount that shadows the
+      # host's file, so the working copy on disk is never touched.
+      - MAGENTO_ENV_PHP=/app/app/etc/env.php
+
+  # opcache.validate_timestamps is 0 in the image, correct for immutable code
+  # and completely wrong for a mounted tree: an edit would never be picked up
+  # and the pod would look broken. This puts it back, and only here.
+  - name: php-dev-ini
+    files:
+      - files/99-dev.ini
+
+patches:
+  # --- PHP pools and consumers ------------------------------------------
+  # One patch, two targets, because the container is index 0 in both and the
+  # replacement is identical. Splitting it would mean two files that have to
+  # be kept in step by hand.
+  - target:
+      kind: Deployment
+      labelSelector: "vanilla.dev/pool"
+    path: patch-php-source.yaml
+  - target:
+      kind: Deployment
+      labelSelector: "vanilla.dev/tier=consumer"
+    path: patch-php-source.yaml
+
+  # --- batch workloads ---------------------------------------------------
+  # The Job and the CronJobs need the same substitution the pools get. They
+  # were missed until the cluster was first run, and the symptom was
+  # "Could not open input file: bin/magento" -- the dev image is empty of
+  # application code by design, so an unpatched batch pod has no Magento in it.
+  - target:
+      kind: Job
+      name: magento-install
+    path: patch-batch-source.yaml
+  - target:
+      kind: CronJob
+    path: patch-cronjob-source.yaml
+
+  # --- nginx pools -------------------------------------------------------
+  - target:
+      kind: Deployment
+      labelSelector: "vanilla.dev/tier=web"
+    path: patch-web-source.yaml

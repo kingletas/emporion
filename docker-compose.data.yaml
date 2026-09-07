@@ -1,0 +1,149 @@
+# The data tier, as its own Compose project.
+#
+# ONE SITE IS TWO PROJECTS: this one, and an application project per site that
+# joins the network declared at the bottom. The split exists because the data
+# tier is the expensive half and none of it is per-site work. Measured idle on
+# this machine with the store installed and sample data loaded:
+#
+#   data tier   db 684 MiB, opensearch 980, rabbit 112, valkey x2 18   1.75 GiB
+#   app tier    php x3 456, web x3 58, varnish 99, cron 0.6            0.60 GiB
+#   consumers   six, at ~145 MiB each                                  0.87 GiB
+#
+# So a second site sharing this tier costs 1.46 GiB rather than 3.22, and
+# 0.60 GiB once parked. Two full stacks is 6.44 GiB idle against ~10 GiB
+# available on this host, which is the shape that produced a load average of
+# 300 -- see the README.
+#
+# THE SAME FILE SERVES BOTH MODES. A shared site attaches to project
+# `magento-data`; an exclusive site starts this file again as
+# `magento-data-<slug>` and attaches to that instead. Nothing here knows which,
+# which is why there is one code path: the containers answer to the same
+# service names either way, and the network name is what keeps them apart.
+#
+#   scripts/site.sh data-up      start it
+#   scripts/site.sh data-down    stop it (refuses while a site is attached)
+#
+# IT CREATES NO DATABASE AND NO USER. MARIADB_DATABASE and MARIADB_USER would
+# only ever provision the FIRST site, and every later one would be created
+# some other way -- two mechanisms for one job, and the second only exercised
+# after the first store exists. scripts/site.sh creates every site's database,
+# user and queue vhost through root, including the first.
+
+name: ${DATA_PROJECT:-magento-data}
+
+services:
+
+  db:
+    image: mariadb:11.4
+    env_file:
+      - ${DATA_SECRETS_DIR:?DATA_SECRETS_DIR is not set - run through scripts/site.sh}/compose-db.env
+    environment:
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./k8s/base/config/files/mariadb/100-custom.cnf:/etc/mysql/mariadb.conf.d/100-custom.cnf:ro
+    healthcheck:
+      # The same check the StatefulSet uses. --innodb_initialized rather than a
+      # bare --connect: MariaDB accepts connections before InnoDB has finished
+      # recovery, and an install that starts in that window fails on the first
+      # CREATE TABLE.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    # 2g served one store. It is not raised for a second: MariaDB's buffer pool
+    # is sized in 100-custom.cnf and several small databases share it the way
+    # one larger one would. Raise it there, not here, and only from `make top`.
+    mem_limit: 2g
+    restart: unless-stopped
+
+  opensearch:
+    image: opensearchproject/opensearch:3
+    environment:
+      # Named after the project rather than after a site: this cluster serves
+      # every attached store, and each of them writes under its own
+      # OPENSEARCH_INDEX_PREFIX. A shared prefix is the collision that looks
+      # like a catalogue with other people's products in it.
+      cluster.name: ${DATA_PROJECT:-magento-data}
+      node.name: opensearch
+      discovery.type: single-node
+      bootstrap.memory_lock: "false"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      # vm.max_map_count is a NODE property, not a container one, so it cannot
+      # be set from here at all -- the cluster sets it with a privileged init
+      # container. memlock is what this can control, and memory_lock is off
+      # above precisely so the host setting does not have to be changed.
+      memlock: -1
+      nofile: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    mem_limit: 1200m
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    env_file:
+      - ${DATA_SECRETS_DIR:?DATA_SECRETS_DIR is not set - run through scripts/site.sh}/compose-rabbit.env
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 40s
+    mem_limit: 512m
+    restart: unless-stopped
+
+  valkey-session:
+    image: valkey/valkey:8.0-alpine
+    # appendonly yes, and noeviction. Sessions are the one cache here that is
+    # not reconstructible: losing it logs every signed-in user out, and an LRU
+    # policy would do that quietly under load rather than failing a write.
+    #
+    # Each site gets its own REDIS_SESSION_DB, so one store's sessions are a
+    # different keyspace rather than a different server.
+    command: ["--appendonly", "yes", "--maxmemory", "384mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - valkey-session-data:/data
+    mem_limit: 512m
+    restart: unless-stopped
+
+  valkey-cache:
+    image: valkey/valkey:8.0-alpine
+    # No persistence and allkeys-lru: everything in here is reconstructible by
+    # definition, so evicting under pressure is correct rather than lossy.
+    #
+    # THE EVICTION POOL IS SHARED and the sites are not isolated from each
+    # other's pressure -- a busy store can evict a quiet one's entries. That is
+    # a correct outcome for a reconstructible cache and a real difference from
+    # a private Valkey; it is stated rather than left to be discovered.
+    command: ["--save", "", "--appendonly", "no", "--maxmemory", "384mb", "--maxmemory-policy", "allkeys-lru"]
+    mem_limit: 512m
+    restart: unless-stopped
+
+networks:
+  default:
+    # A FIXED NAME, not the Compose-generated `<project>_default`. An
+    # application project joins this network as external and has to name it;
+    # without `name:` here it would have to reconstruct the prefix Compose
+    # chose, which is exactly the kind of guess that breaks when Compose
+    # changes its mind about separators.
+    name: ${DATA_NETWORK:-magento-data}
+
+volumes:
+  db-data:
+  opensearch-data:
+  rabbitmq-data:
+  valkey-session-data:

@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+#
+# magento-install — bring the database to the state the running image expects,
+# whatever state it is currently in.
+#
+# ONE script, TWO callers. The kind cluster runs it as Job/magento-install; the
+# Compose stack runs it as a one-shot `magento-install` service. Both invoke it
+# through magento-entrypoint, so env.php exists before this starts. Writing the
+# install logic once is the point: a fresh install that behaves differently
+# depending on which runtime performed it is a difference nobody would look for.
+#
+# It is IDEMPOTENT and decides for itself which of two things to do:
+#
+#   empty database      -> setup:install, every parameter passed explicitly
+#   installed database  -> setup:upgrade --keep-generated, then config import
+#
+# Safe to run on every deploy, which is what the k8s Job and `make
+# compose-install` both do.
+#
+# Usage:  magento-install [-n] [-h]
+#
+#   -n   dry run: print what it would do, including the full setup:install
+#        command with credentials masked, and change nothing
+#   -h   this header
+#
+# Every value comes from the environment — ConfigMap/vanilla-env plus
+# Secret/vanilla-app in the cluster, the env_file entries under secrets/ in
+# Compose. Nothing is defaulted to a credential: a missing one is a hard
+# failure, because the alternative is an install that silently uses a guessable
+# password.
+
+set -euo pipefail
+
+MAGENTO_ROOT="${MAGENTO_ROOT:-/app}"
+ENV_PHP="${MAGENTO_ENV_PHP:-/etc/magento/env.php}"
+DB_WAIT_SECONDS="${DB_WAIT_SECONDS:-180}"
+
+log()  { printf '[install] %s\n' "$*" >&2; }
+die()  { printf '[install] FATAL: %s\n' "$*" >&2; exit 1; }
+
+DRY=0
+while getopts ":nh" opt; do
+    case "$opt" in
+        n) DRY=1 ;;
+        h) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown flag -${OPTARG}; try -h" ;;
+    esac
+done
+
+require() {
+    local name="$1"
+    [[ -n "${!name:-}" ]] || die "${name} is unset. It comes from ConfigMap/vanilla-env or Secret/vanilla-app; an install cannot be correct without it."
+}
+
+require DB_HOST
+require DB_NAME
+require DB_USER
+require DB_PASSWORD
+require MAGENTO_CRYPT_KEY
+require MAGENTO_BASE_URL
+require MAGENTO_ADMIN_PASSWORD
+
+: "${DB_PORT:=3306}"
+: "${OPENSEARCH_HOST:=opensearch}"
+: "${OPENSEARCH_PORT:=9200}"
+: "${RABBITMQ_HOST:=rabbitmq}"
+: "${RABBITMQ_PORT:=5672}"
+: "${RABBITMQ_USER:=magento}"
+: "${REDIS_CACHE_HOST:=valkey-cache}"
+: "${REDIS_SESSION_HOST:=valkey-session}"
+: "${MAGENTO_ADMIN_URI:=admin}"
+: "${MAGENTO_ADMIN_USER:=admin}"
+: "${MAGENTO_ADMIN_EMAIL:=admin@example.com}"
+: "${MAGENTO_ADMIN_FIRSTNAME:=Store}"
+: "${MAGENTO_ADMIN_LASTNAME:=Admin}"
+: "${MAGENTO_LANGUAGE:=en_US}"
+: "${MAGENTO_CURRENCY:=USD}"
+: "${MAGENTO_TIMEZONE:=America/Chicago}"
+: "${MAGENTO_CACHE_PREFIX:=vanilla_}"
+
+cd "$MAGENTO_ROOT" || die "no Magento tree at ${MAGENTO_ROOT}"
+
+# --- is the database reachable, and is it installed? -------------------------
+#
+# THREE states, not two, and conflating the third with the second is the whole
+# reason this is a function rather than a one-liner:
+#
+#   0  installed      the setup_module table exists
+#   1  empty          reachable, no setup_module table
+#   2  unreachable    could not connect at all
+#
+# An unreachable database MUST NOT read as "empty". That mistake turns a
+# transient network failure into an attempted reinstall over a live database.
+# This fails closed: state 2 is retried, and then it is fatal.
+#
+# PHP rather than a mysql client because the image has pdo_mysql and no mysql
+# binary — adding a client package to every runtime image to answer one
+# question at install time is not worth the layer.
+db_state() {
+    php -r '
+        $dsn = sprintf("mysql:host=%s;port=%s;dbname=%s",
+            getenv("DB_HOST"), getenv("DB_PORT"), getenv("DB_NAME"));
+        try {
+            $pdo = new PDO($dsn, getenv("DB_USER"), getenv("DB_PASSWORD"), [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_TIMEOUT => 5,
+            ]);
+        } catch (Throwable $e) {
+            fwrite(STDERR, "[install] database not reachable yet: " . $e->getMessage() . PHP_EOL);
+            exit(2);
+        }
+        $st = $pdo->prepare("SHOW TABLES LIKE ?");
+        $st->execute(["setup_module"]);
+        exit($st->fetchColumn() === false ? 1 : 0);
+    ' 2>/dev/null
+}
+
+# Retry rather than an init container that waits. Every dependency in this
+# deployment is a readiness probe on the dependency plus retry in the dependent
+# — an init container whose only job is to sleep until something else is up is
+# exactly what the design bans.
+wait_for_db() {
+    local waited=0 state
+    while true; do
+        set +e; db_state; state=$?; set -e
+        [[ $state -ne 2 ]] && { printf '%s' "$state"; return; }
+        (( waited >= DB_WAIT_SECONDS )) && \
+            die "database at ${DB_HOST}:${DB_PORT} unreachable after ${DB_WAIT_SECONDS}s. Not assuming it is empty — that would reinstall over live data."
+        sleep 3; waited=$(( waited + 3 ))
+        (( waited % 30 == 0 )) && log "still waiting for ${DB_HOST}:${DB_PORT} (${waited}s)"
+    done
+}
+
+log "checking ${DB_HOST}:${DB_PORT}/${DB_NAME}"
+STATE="$(wait_for_db)"
+
+# --- the two paths -----------------------------------------------------------
+if [[ "$STATE" == "0" ]]; then
+    log "database is installed — upgrading"
+    if [[ $DRY -eq 1 ]]; then
+        log "dry run: setup:upgrade --keep-generated, app:config:import, cache:flush"
+        exit 0
+    fi
+    # --keep-generated matters. The image already contains generated/ from a
+    # successful di:compile at build time; without the flag setup:upgrade
+    # clears it, and the container is then running an image whose whole reason
+    # for existing has just been deleted at runtime.
+    php bin/magento setup:db:status || true
+    php -d memory_limit=-1 bin/magento setup:upgrade --keep-generated
+    php bin/magento app:config:import --no-interaction || true
+else
+    log "database is empty — installing"
+
+    # Start from a genuinely uninstalled state. magento-entrypoint has already
+    # written a complete env.php, and Magento reads `install.date` from it as
+    # proof it is installed; leaving it in place makes setup:install argue with
+    # a configuration this command is about to replace anyway.
+    #
+    # OVERWRITTEN, NEVER DELETED. In the dev overlay this path is a single-file
+    # subPath mount, and unlinking a mount point fails with "Device or resource
+    # busy". A write works in both modes.
+    if [[ $DRY -eq 0 ]]; then
+        printf '<?php\nreturn [];\n' > "$ENV_PHP"
+    fi
+
+    # Every parameter explicit, and that is the load-bearing decision here.
+    # setup:install then depends on nothing the entrypoint wrote, so the two
+    # can never disagree — and because --key is OUR crypt key rather than a
+    # generated one, the env.php the entrypoint regenerates on the next start
+    # still decrypts everything this install encrypted.
+    INSTALL_ARGS=(
+        --no-interaction
+        --base-url="${MAGENTO_BASE_URL}"
+        --base-url-secure="${MAGENTO_BASE_URL}"
+        --use-secure=1
+        --use-secure-admin=1
+        --use-rewrites=1
+        --key="${MAGENTO_CRYPT_KEY}"
+
+        --db-host="${DB_HOST}:${DB_PORT}"
+        --db-name="${DB_NAME}"
+        --db-user="${DB_USER}"
+        --db-password="${DB_PASSWORD}"
+
+        --search-engine=opensearch
+        --opensearch-host="${OPENSEARCH_HOST}"
+        --opensearch-port="${OPENSEARCH_PORT}"
+        --opensearch-index-prefix=magento2
+        --opensearch-enable-auth=0
+        --opensearch-timeout=15
+
+        --session-save=redis
+        --session-save-redis-host="${REDIS_SESSION_HOST}"
+        --session-save-redis-port=6379
+        --session-save-redis-db=0
+        --session-save-redis-disable-locking=1
+
+        --cache-backend=redis
+        --cache-backend-redis-server="${REDIS_CACHE_HOST}"
+        --cache-backend-redis-port=6379
+        --cache-backend-redis-db=0
+
+        --page-cache=redis
+        --page-cache-redis-server="${REDIS_CACHE_HOST}"
+        --page-cache-redis-port=6379
+        --page-cache-redis-db=1
+
+        --backend-frontname="${MAGENTO_ADMIN_URI}"
+        --admin-user="${MAGENTO_ADMIN_USER}"
+        --admin-password="${MAGENTO_ADMIN_PASSWORD}"
+        --admin-email="${MAGENTO_ADMIN_EMAIL}"
+        --admin-firstname="${MAGENTO_ADMIN_FIRSTNAME}"
+        --admin-lastname="${MAGENTO_ADMIN_LASTNAME}"
+
+        --language="${MAGENTO_LANGUAGE}"
+        --currency="${MAGENTO_CURRENCY}"
+        --timezone="${MAGENTO_TIMEZONE}"
+    )
+
+    # AMQP only when a password is present. Magento accepts an install without
+    # a message queue and configures the db-backed one instead; passing an
+    # --amqp-host with no credentials fails the install outright, which is a
+    # worse outcome than a queue that can be configured afterwards.
+    if [[ -n "${RABBITMQ_PASSWORD:-}" ]]; then
+        INSTALL_ARGS+=(
+            --amqp-host="${RABBITMQ_HOST}"
+            --amqp-port="${RABBITMQ_PORT}"
+            --amqp-user="${RABBITMQ_USER}"
+            --amqp-password="${RABBITMQ_PASSWORD}"
+            --amqp-virtualhost=/
+        )
+    else
+        log "RABBITMQ_PASSWORD is unset — installing without AMQP; consumers will use the database queue"
+    fi
+
+    if [[ $DRY -eq 1 ]]; then
+        log "dry run, would execute:"
+        printf '[install]   bin/magento setup:install \\\n' >&2
+        for a in "${INSTALL_ARGS[@]}"; do
+            printf '[install]     %s\n' \
+                "$(printf '%s' "$a" | sed -E 's/(--(admin-password|db-password|amqp-password|key)=).*/\1<redacted>/')" >&2
+        done
+        exit 0
+    fi
+
+    php -d memory_limit=-1 bin/magento setup:install "${INSTALL_ARGS[@]}"
+
+    # REGENERATE THE CANONICAL env.php, THEN IMPORT AGAINST IT. setup:install
+    # wrote its own env.php a few lines up, and every container regenerates the
+    # canonical one from the shared config at start -- so the `system` section
+    # the database just recorded a hash of is not the section that will be read
+    # on the next start. Magento compares the two and refuses to serve when they
+    # differ: every request 500s with "The configuration file has changed", on
+    # the storefront rather than at the point of the change.
+    #
+    # Importing here without the regeneration finds nothing to do, because the
+    # file it reads is the one setup:install wrote and is about to be replaced.
+    # Re-running the entrypoint writes the canonical file and execs the import
+    # against it, which is what makes the hash match what every container will
+    # actually load. It is idempotent -- lint, copy, mkdir, exec.
+    #
+    # Only a fresh install reaches this. An upgrade is already running the
+    # canonical file, which is why this path stayed broken while every seeded
+    # store worked.
+    magento-entrypoint php bin/magento app:config:import --no-interaction
+fi
+
+# --- both paths end here -----------------------------------------------------
+# Reindex before the flush, not after: flushing first just repopulates a cache
+# that is about to be wrong.
+log "reindexing"
+php -d memory_limit=-1 bin/magento indexer:reindex || \
+    log "WARNING: reindex returned non-zero. The store is installed; search and listings may be stale until it is rerun."
+
+log "flushing cache"
+php bin/magento cache:flush
+
+# --- the cache-type gate -----------------------------------------------------
+# MAGENTO_CACHE_TYPES is a hand-maintained list in the shared env file, and
+# modules add cache types. A type Magento knows about that is missing from the
+# list is silently DISABLED -- there is no error, and `cache:status` shows a 0
+# that is indistinguishable from a deliberate choice.
+#
+# This is the only place that can catch it, because it is the only step that has
+# both a bootstrapped Magento and the declared list in the same process.
+# Reported, not fatal: the store is installed and working either way, and dying
+# here would turn a configuration drift into a failed deploy.
+if [[ -n "${MAGENTO_CACHE_TYPES:-}" ]]; then
+    actual="$(php bin/magento cache:status 2>/dev/null | tail -n +2 | awk 'NF{gsub(/:/,"",$1); print $1}' | sort)"
+    declared="$(printf '%s\n' ${MAGENTO_CACHE_TYPES} | sort)"
+    missing="$(comm -23 <(printf '%s\n' "$actual") <(printf '%s\n' "$declared"))"
+    extra="$(comm -13 <(printf '%s\n' "$actual") <(printf '%s\n' "$declared"))"
+    if [[ -n "$missing" ]]; then
+        log "WARNING: Magento has cache types that MAGENTO_CACHE_TYPES does not list."
+        log "WARNING: each of these is DISABLED right now, silently:"
+        printf '[install]   - %s\n' $missing >&2
+        log "WARNING: add them to k8s/base/config/env/common.env and redeploy."
+    fi
+    if [[ -n "$extra" ]]; then
+        log "NOTE: MAGENTO_CACHE_TYPES lists types Magento does not have; harmless, but stale:"
+        printf '[install]   - %s\n' $extra >&2
+    fi
+    [[ -z "$missing$extra" ]] && log "cache types agree: $(printf '%s\n' "$actual" | wc -l | tr -d ' ') declared and enabled"
+fi
+
+log "done — the store is installed and upgraded"

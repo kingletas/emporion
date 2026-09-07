@@ -1,0 +1,11 @@
+# Normalise line endings on the way in, so a checkout on another platform does
+# not produce a diff in every file.
+* text=auto eol=lf
+
+# A shell script with CRLF line endings fails with a bare "bad interpreter",
+# which names the shell rather than the endings and costs an hour.
+*.sh      text eol=lf
+Makefile  text eol=lf
+
+# Generated or bulk content, kept out of the diff and the language statistics.
+docs/adr/*.md linguist-documentation

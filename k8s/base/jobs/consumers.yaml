@@ -1,0 +1,481 @@
+# Queue consumers, one Deployment each.
+#
+# Like the CronJobs, these have no Compose service to translate. Under Compose
+# a consumer is started by hand with `bin/magento queue:consumers:start`, or
+# by cron_consumers_runner in env.php — and the env.php block is commented out
+# in this environment, so in practice nothing consumes anything until someone
+# notices. That is the silent failure: a consumer that is not named never
+# runs, and nothing reports it.
+#
+# Making each one a Deployment is the change that fixes it. A consumer that
+# exits is restarted; a consumer that was never declared is a missing
+# Deployment, which is visible in `kubectl get deploy`; and a consumer that is
+# declared here but absent from MAGENTO_CONSUMERS in the ConfigMap is caught
+# by `make verify-consumers`, because that mismatch is the one shape of this
+# bug Kubernetes cannot see for itself.
+#
+# --max-messages is set on every one. A long-lived PHP process consuming an
+# unbounded number of messages accumulates memory until the container limit
+# kills it, and a restart at a message boundary is free where an OOMKill
+# mid-message is not.
+#
+# THE LIST IS CORE MAGENTO ONLY, ON PURPOSE. Site-specific consumers are added
+# through the per-site env file and an overlay, not here. That is the right
+# layering — a queue belonging to one store's modules is not infrastructure —
+# and it keeps this file valid for any Magento installation.
+---
+# Bulk API operations. The heaviest consumer here by a wide margin.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-async-operations-all
+  labels:
+    app.kubernetes.io/name: consumer-async-operations-all
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "async.operations.all"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-async-operations-all
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-async-operations-all
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "async.operations.all"
+            - "--max-messages=100"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive — a consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start async.operations.all' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 384Mi
+            limits:
+              memory: 768Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# Mass attribute updates from the admin product grid.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-product-action-attribute-update
+  labels:
+    app.kubernetes.io/name: consumer-product-action-attribute-update
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "product_action_attribute.update"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-product-action-attribute-update
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-product-action-attribute-update
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "product_action_attribute.update"
+            - "--max-messages=100"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive — a consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start product_action_attribute.update' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# MSI reservations. Latency here shows up as wrong salable quantities.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-inventory-reservations-update
+  labels:
+    app.kubernetes.io/name: consumer-inventory-reservations-update
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "inventory.reservations.update"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-inventory-reservations-update
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-inventory-reservations-update
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "inventory.reservations.update"
+            - "--max-messages=500"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive — a consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start inventory.reservations.update' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# Compacts completed reservations; unbounded growth if it never runs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-inventory-reservations-cleanup
+  labels:
+    app.kubernetes.io/name: consumer-inventory-reservations-cleanup
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "inventory.reservations.cleanup"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-inventory-reservations-cleanup
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-inventory-reservations-cleanup
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "inventory.reservations.cleanup"
+            - "--max-messages=500"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive — a consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start inventory.reservations.cleanup' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# Writes to pub/media, so it holds the shared claim from ADR-003 — the one consumer where the storage decision is visible.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-media-gallery-synchronization
+  labels:
+    app.kubernetes.io/name: consumer-media-gallery-synchronization
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "media.gallery.synchronization"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-media-gallery-synchronization
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-media-gallery-synchronization
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "media.gallery.synchronization"
+            - "--max-messages=100"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive — a consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start media.gallery.synchronization' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# Generates code at runtime. On an immutable image it should have nothing to do; if it is busy, something is not in the image that should be.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-codegenerator
+  labels:
+    app.kubernetes.io/name: consumer-codegenerator
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "codegeneratorProcessor"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-codegenerator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-codegenerator
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "codegeneratorProcessor"
+            - "--max-messages=100"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive — a consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start codegeneratorProcessor' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media

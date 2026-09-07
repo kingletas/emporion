@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+#
+# magento-entrypoint — assemble app/etc/env.php, then exec the container's
+# real command.
+#
+# env.php is per-environment, holds
+# credentials, and carries cron_consumers_runner — and a consumer that is not
+# named in that list never runs, with no error anywhere. So the file cannot be
+# baked into the image (credentials) and cannot be omitted (consumers), which
+# leaves assembling it at pod start from a ConfigMap plus a Secret.
+#
+# Every value below comes from the environment. Nothing is defaulted to a
+# credential; a missing credential is a hard failure, because the alternative
+# is a pod that starts, connects to nothing, and reports itself ready.
+
+set -euo pipefail
+
+ENV_PHP="${MAGENTO_ENV_PHP:-/etc/magento/env.php}"
+
+log() { printf '[entrypoint] %s\n' "$*" >&2; }
+die() { printf '[entrypoint] FATAL: %s\n' "$*" >&2; exit 1; }
+
+require() {
+    local name="$1"
+    [[ -n "${!name:-}" ]] || die "${name} is unset. It comes from Secret/vanilla-app or ConfigMap/vanilla-env; a pod cannot be correct without it."
+}
+
+# An image built with SKIP_COMPILE=true has no generated/ and no static
+# content. It exists so the manifests can be iterated on before the compile in
+# ADR-004 is settled, and it must never be what the prod-shaped overlay runs.
+if [[ -f /app/var/.skip-compile && "${MAGENTO_REQUIRE_COMPILED:-false}" == "true" ]]; then
+    die "this image was built with SKIP_COMPILE=true and MAGENTO_REQUIRE_COMPILED=true is set. Rebuild with: make image"
+fi
+
+if [[ -f /app/var/.compile-excludes ]]; then
+    log "image was built with these vendor packages removed (ADR-004):"
+    sed 's/^/[entrypoint]   - /' /app/var/.compile-excludes >&2
+fi
+
+require DB_HOST
+require DB_NAME
+require DB_USER
+require DB_PASSWORD
+require MAGENTO_CRYPT_KEY
+
+: "${DB_PORT:=3306}"
+: "${REDIS_CACHE_HOST:=valkey-cache}"
+: "${REDIS_SESSION_HOST:=valkey-session}"
+: "${OPENSEARCH_HOST:=opensearch}"
+: "${OPENSEARCH_PORT:=9200}"
+: "${RABBITMQ_HOST:=rabbitmq}"
+: "${RABBITMQ_PORT:=5672}"
+: "${RABBITMQ_USER:=magento}"
+: "${MAGENTO_MODE:=production}"
+# Namespaces every cache key. Both runtimes have their own Valkey, so nothing
+# collides today -- but this value was defaulted here and referenced nowhere
+# until the id_prefix entries below existed, which meant setting it in the
+# ConfigMap decided nothing at all.
+: "${MAGENTO_CACHE_PREFIX:=vanilla_}"
+# THE FOUR NAMESPACES THAT KEEP TWO STORES APART on a shared data tier, and
+# every one of them fails silently when it is wrong rather than refusing.
+#
+# The defaults are Magento's own, which is what the first store on a machine
+# already has -- so a store installed before any of this existed keeps working
+# untouched. A site created by scripts/site.sh is given its own values.
+#
+#   index prefix   two stores writing one OpenSearch index. The symptom is a
+#                  catalogue containing another store's products, and a
+#                  reindex on either one deleting the other's documents.
+#   queue vhost    Magento's queue names are fixed strings and identical in
+#                  every store, so one vhost means shared queues: a message
+#                  published by one store is consumed by the other, and the
+#                  only evidence is work that never happened.
+#   redis dbs      the cache prefix already separates the KEYS; these separate
+#                  the keyspaces, so a flushdb or an eviction stays local.
+: "${OPENSEARCH_INDEX_PREFIX:=magento2}"
+: "${RABBITMQ_VIRTUALHOST:=/}"
+: "${REDIS_CACHE_DB:=0}"
+: "${REDIS_PAGE_CACHE_DB:=1}"
+: "${REDIS_SESSION_DB:=0}"
+# The storefront URL, and it is not cosmetic. Magento reads base_url from
+# core_config_data, and an env.php entry overrides those rows for every process
+# that loads it. Setting it here is what makes the two runtimes interchangeable:
+# the same database serves the cluster and the Compose stack, and whichever one
+# is up declares the URL rather than inheriting whatever the last install wrote.
+# Without the override, a database installed under one runtime sends every asset
+# URL, redirect and form action to a host the other does not answer on -- and
+# the result reads as an ingress or DNS fault rather than as configuration.
+: "${MAGENTO_BASE_URL:=https://vanilla.test/}"
+# Stable across every pod on purpose. Magento mixes install_date into cache
+# identifiers; if each pod generated its own, two replicas would never share a
+# cache entry and the storefront would look intermittently uncached.
+: "${MAGENTO_INSTALL_DATE:=Thu, 01 Jan 2026 00:00:00 +0000}"
+# Consumers named here are the ones that run at all. The list is a ConfigMap
+# value rather than an image constant precisely so adding one is a config
+# change, not a rebuild.
+: "${MAGENTO_CONSUMERS:=}"
+# cron_run false: Magento's own cron is a CronJob in this deployment, not an
+# in-process runner. Leaving it true means every php-fpm pod also thinks it is
+# a cron host.
+: "${MAGENTO_CRON_RUN:=false}"
+# 1 = block on an empty queue, 0 = exit immediately. See the note in the
+# template: at 0 every consumer restart-loops forever on an idle store.
+: "${MAGENTO_CONSUMERS_WAIT:=1}"
+# 2 is Varnish, 1 is Magento's built-in cache. See the note in the template.
+: "${MAGENTO_FPC_APPLICATION:=2}"
+: "${MAGENTO_FPC_TTL:=86400}"
+# Cache types to enable. See the note beside it in the shared env file: an
+# unlisted type is DISABLED, and an empty list disables every cache in Magento.
+: "${MAGENTO_CACHE_TYPES:=}"
+
+mkdir -p "$(dirname "$ENV_PHP")"
+
+consumers_php=""
+if [[ -n "$MAGENTO_CONSUMERS" ]]; then
+    for c in $MAGENTO_CONSUMERS; do
+        consumers_php+="            '${c}',"$'\n'
+    done
+fi
+
+# cache_types is authoritative and fails closed: an unlisted type is disabled,
+# and so is everything when the key is empty. This used to be written as a bare
+# `[]`, which switched off all 18 caches including full_page -- the storefront
+# then answers `Cache-Control: no-store` and Varnish caches nothing, with no
+# error and a cache:status full of zeroes that reads like a deliberate state.
+cache_types_php=""
+for t in $MAGENTO_CACHE_TYPES; do
+    cache_types_php+="        '${t}' => 1,"$'\n'
+done
+if [[ -z "$cache_types_php" ]]; then
+    log "WARNING: MAGENTO_CACHE_TYPES is empty, so EVERY Magento cache will be disabled."
+    log "WARNING: the storefront will be uncacheable and Varnish will never hold a page."
+fi
+
+# Written to a temporary file first, then copied over the destination.
+#
+# Copied rather than moved, and that is not a style choice. In the dev overlay
+# the destination is a single-file subPath mount over the working tree's own
+# app/etc/env.php — so it IS a mount point, and `mv` onto a mount point fails
+# with "Device or resource busy". An in-place copy works in both modes, and
+# the temp-file-plus-lint step still means a pod restarted mid-write never
+# execs against a half-written file.
+tmp="$(mktemp "${TMPDIR:-/tmp}/env.php.XXXXXX")"
+cat > "$tmp" <<PHP
+<?php
+/**
+ * GENERATED AT POD START by magento-entrypoint. Do not edit.
+ *
+ * Source of every value: ConfigMap/vanilla-env and Secret/vanilla-app,
+ * generated from common.env layered under this site's own env file.
+ * Editing this file inside a pod is lost on the next restart, which is the
+ * intended behaviour.
+ */
+return [
+    'backend' => ['frontName' => '${MAGENTO_ADMIN_URI:-admin}'],
+    'crypt' => ['key' => '${MAGENTO_CRYPT_KEY}'],
+    'db' => [
+        'table_prefix' => '',
+        'connection' => [
+            'default' => [
+                'host' => '${DB_HOST}:${DB_PORT}',
+                'dbname' => '${DB_NAME}',
+                'username' => '${DB_USER}',
+                'password' => '${DB_PASSWORD}',
+                'model' => 'mysql4',
+                'engine' => 'innodb',
+                'initStatements' => 'SET NAMES utf8;',
+                'active' => '1',
+                'driver_options' => [1014 => false],
+            ],
+        ],
+    ],
+    'resource' => ['default_setup' => ['connection' => 'default']],
+    'x-frame-options' => 'SAMEORIGIN',
+    'MAGE_MODE' => '${MAGENTO_MODE}',
+    'cache_types' => [
+${cache_types_php}    ],
+    'queue' => [
+        'amqp' => [
+            'host' => '${RABBITMQ_HOST}',
+            'port' => '${RABBITMQ_PORT}',
+            'user' => '${RABBITMQ_USER}',
+            'password' => '${RABBITMQ_PASSWORD}',
+            'virtualhost' => '${RABBITMQ_VIRTUALHOST}',
+            'ssl' => false,
+        ],
+        /*
+         * 1, so a consumer BLOCKS on an empty queue instead of exiting.
+         *
+         * At 0 it returns immediately when there is nothing to read, and every
+         * consumer here is a long-running workload with a restart policy -- so
+         * an idle store restart-loops six PHP bootstraps every few seconds,
+         * forever. Measured at 16 restarts in seven minutes on a store with no
+         * traffic at all. Nothing errors; it just burns CPU and fills the logs
+         * with something that looks like activity.
+         *
+         * 0 is the right value when cron starts consumers and they should exit
+         * when done. That is not this deployment: cron_run is false and each
+         * consumer is its own workload.
+         */
+        'consumers_wait_for_messages' => ${MAGENTO_CONSUMERS_WAIT},
+    ],
+    /*
+     * The list that decides which consumers exist. In this deployment each
+     * name below ALSO has its own Deployment in k8s/base/jobs/consumers.yaml;
+     * cron_run is false because the consumers are not started by cron here.
+     * A name present in one place and absent from the other is the silent
+     * failure this list is prone to, and \`make verify-consumers\` checks it.
+     */
+    'cron_consumers_runner' => [
+        'cron_run' => ${MAGENTO_CRON_RUN},
+        'max_messages' => 1000,
+        'consumers' => [
+${consumers_php}        ],
+    ],
+    'session' => [
+        'save' => 'redis',
+        'redis' => [
+            'host' => '${REDIS_SESSION_HOST}',
+            'port' => '6379',
+            'database' => '${REDIS_SESSION_DB}',
+            'timeout' => '2.5',
+            'disable_locking' => '1',
+            'max_concurrency' => '20',
+            'break_after_frontend' => '5',
+            'break_after_adminhtml' => '30',
+        ],
+    ],
+    'cache' => [
+        'frontend' => [
+            'default' => [
+                'backend' => 'Magento\\\\Framework\\\\Cache\\\\Backend\\\\Redis',
+                'backend_options' => [
+                    'server' => '${REDIS_CACHE_HOST}',
+                    'port' => '6379',
+                    'database' => '${REDIS_CACHE_DB}',
+                    'compress_data' => '1',
+                ],
+                'id_prefix' => '${MAGENTO_CACHE_PREFIX}',
+            ],
+            'page_cache' => [
+                'backend' => 'Magento\\\\Framework\\\\Cache\\\\Backend\\\\Redis',
+                'backend_options' => [
+                    'server' => '${REDIS_CACHE_HOST}',
+                    'port' => '6379',
+                    'database' => '${REDIS_PAGE_CACHE_DB}',
+                    'compress_data' => '0',
+                ],
+                'id_prefix' => '${MAGENTO_CACHE_PREFIX}',
+            ],
+        ],
+        /*
+         * Varnish stays in the chain rather than being replaced by the
+         * ingress (ADR-005). access_list is the purge ACL and must name the
+         * Service, not an IP: pod addresses change on every replacement.
+         */
+        'allow_parallel_generation' => false,
+    ],
+    'http_cache_hosts' => [
+        ['host' => '${VARNISH_HOST:-varnish}', 'port' => '${VARNISH_PORT:-80}'],
+    ],
+    'lock' => [
+        'provider' => 'db',
+    ],
+    'directories' => ['document_root_is_pub' => true],
+    'install' => ['date' => '${MAGENTO_INSTALL_DATE}'],
+    'system' => [
+        'default' => [
+            'web' => [
+                'unsecure' => [
+                    'base_url' => '${MAGENTO_BASE_URL}',
+                    'base_link_url' => '{{unsecure_base_url}}',
+                    'base_static_url' => '{{unsecure_base_url}}static/',
+                ],
+                'secure' => [
+                    'base_url' => '${MAGENTO_BASE_URL}',
+                    'base_link_url' => '{{secure_base_url}}',
+                    'base_static_url' => '{{secure_base_url}}static/',
+                ],
+            ],
+            /*
+             * Varnish is the full-page cache, and saying so is not optional.
+             * A fresh install defaults system/full_page_cache/caching_application
+             * to 1, the BUILT-IN cache -- and Magento then emits
+             * Cache-Control: no-store on every storefront response, so Varnish
+             * caches nothing and every request is a MISS forever.
+             *
+             * Nothing errors. The chain is intact, the headers are valid, and
+             * the only symptom is a storefront that is quietly uncached.
+             *
+             * Declared here rather than set in core_config_data so it travels
+             * with the runtime: whichever runtime is up is the one that decides,
+             * and the database does not carry an opinion about an edge it cannot
+             * see. Same reasoning as base_url above.
+             */
+            'system' => [
+                'full_page_cache' => [
+                    'caching_application' => '${MAGENTO_FPC_APPLICATION}',
+                    'ttl' => '${MAGENTO_FPC_TTL}',
+                ],
+            ],
+            'catalog' => [
+                'search' => [
+                    'engine' => 'opensearch',
+                    'opensearch_server_hostname' => '${OPENSEARCH_HOST}',
+                    'opensearch_server_port' => '${OPENSEARCH_PORT}',
+                    'opensearch_index_prefix' => '${OPENSEARCH_INDEX_PREFIX}',
+                    'opensearch_enable_auth' => 0,
+                    'opensearch_server_timeout' => 15,
+                ],
+            ],
+        ],
+    ],
+];
+PHP
+
+php -l "$tmp" >/dev/null || die "the generated env.php is not valid PHP — refusing to start"
+cat "$tmp" > "$ENV_PHP"
+rm -f "$tmp"
+chmod 0640 "$ENV_PHP" 2>/dev/null || true
+log "wrote ${ENV_PHP} (mode ${MAGENTO_MODE}, $(echo "$MAGENTO_CONSUMERS" | wc -w) consumers declared)"
+
+# var/ is pod-local (emptyDir). Magento assumes these exist and fails in
+# different, unhelpful ways for each one that does not.
+mkdir -p /app/var/log /app/var/report /app/var/tmp /app/var/cache /app/var/page_cache /app/var/session
+
+exec "$@"

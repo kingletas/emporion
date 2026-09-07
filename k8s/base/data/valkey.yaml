@@ -1,0 +1,163 @@
+# The two Valkey instances, and the one place in this deployment where two
+# services running identical images get different workload kinds.
+#
+# Under Compose they are literally the same anchor (*redis-base) used twice.
+# That equality is wrong, and Kubernetes is where it stops being expressible:
+#
+#   valkey-session  StatefulSet + PVC   losing it logs every test user out
+#                                       mid-checkout
+#   valkey-cache    Deployment + emptyDir  genuinely ephemeral — the one place
+#                                       in the whole stack where emptyDir is
+#                                       the right answer rather than a
+#                                       shortcut
+#
+# Making that distinction is most of the point.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-session
+  labels:
+    app.kubernetes.io/name: valkey-session
+spec:
+  selector:
+    app.kubernetes.io/name: valkey-session
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: valkey-session
+spec:
+  serviceName: valkey-session
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-session
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey-session
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.0-alpine
+          # appendonly, because the default RDB snapshot loses up to the
+          # snapshot interval on an unclean stop — and for sessions that is
+          # measured in logged-out users.
+          args:
+            - "--appendonly"
+            - "yes"
+            - "--maxmemory"
+            - "384mb"
+            - "--maxmemory-policy"
+            - "noeviction"
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-cache
+  labels:
+    app.kubernetes.io/name: valkey-cache
+spec:
+  selector:
+    app.kubernetes.io/name: valkey-cache
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey-cache
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.0-alpine
+          # allkeys-lru and no persistence. This is a cache: it is allowed to
+          # forget, and being explicit about that is what makes the emptyDir
+          # honest rather than lazy.
+          args:
+            - "--save"
+            - ""
+            - "--appendonly"
+            - "no"
+            - "--maxmemory"
+            - "384mb"
+            - "--maxmemory-policy"
+            - "allkeys-lru"
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          emptyDir: {}

@@ -1,0 +1,94 @@
+# Base: everything both overlays share.
+#
+# Kustomize rather than Helm (ADR-002). The dev / prod-shaped split is exactly
+# the shape an overlay expresses, and Helm's templating buys its keep when
+# packaging for other people — which this is not. It is also `kubectl -k`,
+# so there is no fourth binary to install.
+#
+# The base is not deployable on its own by design: the image tag and the
+# source of the application code differ between the two overlays, and a base
+# that picked one would quietly make the other the special case.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vanilla
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: emporion
+
+resources:
+  # Data tier — everything with state, and the classification of which kind
+  # of state it is.
+  - data/mariadb.yaml
+  - data/opensearch.yaml
+  - data/rabbitmq.yaml
+  - data/valkey.yaml
+  - data/mailhog.yaml
+
+  # Application tier.
+  - app/media-pvc.yaml
+  - app/php-pools.yaml
+  - app/web-pools.yaml
+
+  # Edge. Varnish stays in the chain; `proxy` is deleted, not migrated.
+  - edge/varnish.yaml
+  - edge/ingress.yaml
+
+  # Work that has no Compose service at all.
+  - jobs/magento-install.yaml
+  - jobs/magento-cron.yaml
+  - jobs/consumers.yaml
+
+configMapGenerator:
+  # Non-sensitive configuration, read from files rather than written here as
+  # literals. These are the single source both runtimes read -- see common.env's
+  # own header for why they sit under k8s/base rather than at the repository
+  # root. Nothing in them is a credential; those come from Secret/vanilla-app,
+  # which scripts/secrets.sh generates and never commits.
+  #
+  # TWO ENTRIES, AND THE ORDER IS THE PRECEDENCE. Kustomize merges an `envs:`
+  # list in sequence and the later file wins, which is exactly what Compose
+  # does with two `env_file:` entries. That identity is the whole reason the
+  # per-site split is safe: the same pair, read the same way, by both runtimes.
+  #
+  # THE SITE NAMED HERE IS THE CLUSTER'S DEFAULT, not a global one. The cluster
+  # is single-site by construction -- it binds 127.0.0.1:80 and cluster-up.sh
+  # refuses to exist beside a Compose stack -- so it runs one store at a time
+  # and scripts/deploy.sh points it at whichever site was asked for. Multi-site
+  # is a Compose feature; this line is what the base renders as on its own.
+  - name: vanilla-env
+    envs:
+      - config/env/common.env
+      - config/env/sites/vanilla-test.env
+
+  # Generated from the same file the Compose service bind-mounts, for the same
+  # reason the nginx and Varnish configs are: one copy, so the two runtimes
+  # cannot be tuned differently without somebody noticing.
+  - name: mariadb-config
+    files:
+      - config/files/mariadb/100-custom.cnf
+
+  - name: nginx-config
+    files:
+      - config/files/nginx/nginx.conf
+      - config/files/nginx/magento.conf
+      - config/files/nginx/app.conf.template
+
+  - name: varnish-vcl
+    files:
+      - config/files/varnish/default.vcl
+
+# The generators above hash their content into the object name, so a changed
+# VCL or a changed consumer list rolls the pods that consume it automatically.
+# That is the single best reason to generate ConfigMaps rather than write
+# them: an edited ConfigMap applied by hand changes nothing until something
+# restarts, and "I changed the config and nothing happened" is the most
+# expensive hour in Kubernetes.
+generatorOptions:
+  disableNameSuffixHash: false
+
+images:
+  - name: magento-app
+    newTag: local

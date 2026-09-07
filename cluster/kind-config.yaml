@@ -1,0 +1,72 @@
+# kind cluster for the Magento store in this repository.
+#
+# Single node on purpose. See docs/adr/ADR-001-local-kubernetes-runtime.md:
+# multi-node buys nothing here and costs RAM on a host that is already at
+# ~20 of 31 GB with swap engaged, and it would hide the fact that the
+# ReadWriteMany media claim in ADR-003 only works because there is one node.
+#
+# extraPortMappings put the ingress controller on the host's 80/443 so
+# https://vanilla.test resolves through /etc/hosts with no port suffix and the
+# existing *.test mkcert certificate is valid for it.
+#
+# listenAddress is 127.0.0.1 and NOT the default 0.0.0.0, which is what lets
+# this cluster coexist with the nginx-proxy container the rest of the .test
+# estate routes through. A wildcard bind claims port 80 on every address, so
+# two wildcard binds can never share it no matter which one starts first.
+# nginx-proxy publishes on 172.17.0.1, where dnsmasq already sends every *.test
+# name, and scripts/hosts.sh overrides vanilla.test alone to 127.0.0.1.
+#
+# That is also how the two runtimes in this repository swap places. The Compose
+# stack reaches vanilla.test through nginx-proxy and publishes no port at all;
+# the cluster takes the hostname by adding one /etc/hosts line. Being cheap to
+# switch is the point -- it is NOT permission to run both, which cluster-up.sh
+# refuses outright.
+#
+# extraMounts expose the host's Magento tree to the node so the dev overlay
+# can hostPath-mount it into the PHP pods. The prod-shaped overlay and the
+# Compose runtime never touch it — the code is in the image in both.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: vanilla
+
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      # Label the node so the ingress-nginx manifest's nodeSelector matches.
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+      # There is deliberately NO allowedUnsafeSysctls patch here, and the
+      # reason is worth keeping: this file used to carry one for
+      # vm.max_map_count, and it stopped the kubelet from starting at all --
+      #
+      #   failed to create kubelet: the sysctls "vm.max_map_count" are not
+      #   known to be namespaced
+      #
+      # kubeadm accepted it, the cluster reached "Preparing nodes", and then
+      # the control plane never came up, so the only visible symptom was a
+      # connection-refused against the API server. allowedUnsafeSysctls takes
+      # only NAMESPACED sysctls -- kernel.shm*, kernel.msg*, kernel.sem,
+      # fs.mqueue.*, net.* -- and vm.max_map_count is a node property, which
+      # is precisely why it cannot go there. A node property is set on the
+      # node: k8s/base/data/opensearch.yaml does it with a privileged init
+      # container running `sysctl -w`, which needs no kubelet permission.
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+    extraMounts:
+      # Magento application tree — dev overlay only. ${MAGENTO_SRC} is
+      # substituted by scripts/cluster-up.sh before kind reads this, so the
+      # mount follows the same variable the image build uses. kind resolves
+      # the path at cluster-create time, and a wrong one produces pods that
+      # start with no Magento in them rather than an error naming the mount.
+      - hostPath: ${MAGENTO_SRC}
+        containerPath: /magento-src
