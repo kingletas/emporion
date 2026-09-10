@@ -47,7 +47,7 @@ A Magento store is not one program. It's about twenty containers that have to ag
 
 **This repository is the description of all of that**, in two forms — a Docker Compose stack and a Kubernetes cluster — from one image and one set of configuration files.
 
-You want the Compose one. It starts in under a minute and it's what you work in day to day. The cluster is for questions Compose cannot be asked, and [The two runtimes](runtimes.md) explains when that's.
+You want the Compose one. It starts in under a minute and it's what you work in day to day. The cluster is for questions Compose cannot be asked, and [The two runtimes](runtimes.md) explains when that is.
 
 ## Step 1: the things this cannot supply
 

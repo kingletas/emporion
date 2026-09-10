@@ -94,7 +94,7 @@ Walks the acceptance criteria against the cluster and reports each one pass, fai
 
 **A7 cannot be fully met, and this repository says so rather than measuring something easier.** Two builds from one commit don't produce the same digest: the base image is a moving tag, apt pulls whatever the mirror has, and every layer carries a timestamp. `scripts/verify-image.sh` hashes the *application content* instead — same code, same vendor tree, same `generated/`, same static content — and its header states plainly which four things it isn't checking and which three of them cannot be fixed from inside this repository.
 
-**A11 is thinner than it looks against an empty catalogue.** A cache HIT on the CMS home page proves the chain is intact; it doesn't prove anything about the catalogue path, because there's no catalogue until `make sample-data` or real products exist. Read it as what it's.
+**A11 is thinner than it looks against an empty catalogue.** A cache HIT on the CMS home page proves the chain is intact; it doesn't prove anything about the catalogue path, because there's no catalogue until `make sample-data` or real products exist. Read it as what it is.
 
 ---
 

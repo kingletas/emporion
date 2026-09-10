@@ -54,7 +54,7 @@ This is a defect that has nothing to do with Kubernetes, and it blocks the whole
 
 **Disadvantages** — There was no *elsewhere*: the compile failed in the only environment that had the source. It also produces an image whose `generated/` doesn't correspond to its `vendor/`, which is a worse failure than a missing package because it's invisible until a specific interceptor is needed.
 
-> [!important] Excluding a package makes the image diverge from what `composer.lock` says it's, and that's the cost
+> [!important] Excluding a package makes the image diverge from what `composer.lock` says it is, and that's the cost
 > Whatever the excluded package does is simply absent — and absent in a way that will look like an infrastructure problem when someone hits it, because nothing in the runtime says a package was removed. That's why an exclusion is printed at build time, written to `/app/var/.compile-excludes` inside the image, and printed again at container start. **A workaround nobody can see is indistinguishable from a bug.**
 >
 > Nothing is excluded today. This is the mechanism waiting for the next package that needs it, not a description of the current image.
