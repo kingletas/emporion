@@ -66,10 +66,11 @@ Then `https://vanilla.test/`.
 
 ## Requirements
 
-- **Docker**, with BuildKit. That's the whole list for the Compose runtime.
+- **Docker**, with BuildKit, and your reverse proxy's Docker network (below). That's the whole list for the Compose runtime.
 - **A Magento 2 tree** at `MAGENTO_SRC`, defaulting to `commerce-vanilla/` beside this repository. Nothing here vendors Magento or installs it for you.
 - **`kind` and `kubectl`** for the cluster runtime only. `make tools` installs both.
 - **Wildcard DNS for `.test`** pointing at your Docker bridge, and a reverse proxy in front of it — dnsmasq and nginx-proxy here. The cluster runtime binds `127.0.0.1` and needs one `/etc/hosts` line instead.
+- **The proxy's Docker network.** The Compose runtime joins it by name and fails to start if it doesn't exist. Set `PROXY_NETWORK` to your proxy's network (the default is `proxy-dns_default`), or, with no proxy at all, create an empty one: `docker network create proxy-dns_default`.
 - **`mkcert`**, and a certificate per hostname in `CERTS_HOME`. There's no wildcard shortcut; see the callout in [Getting started](docs/getting-started.md#quick-start) for why. If your setup needs a proxy reloaded after issuing, point `DEV_CERT_TOOL` at your own wrapper and it will be called instead.
 - **`envsubst`**, from GNU gettext, for the cluster runtime.
 
