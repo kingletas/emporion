@@ -34,7 +34,7 @@ These describe your machine. Set them in your shell, or accept the defaults.
 | `CLUSTER_NAME` | `vanilla` | The kind cluster's name |
 | `NAMESPACE` | `vanilla` | The Kubernetes namespace |
 | `OVERLAY` | `dev` | Which cluster overlay to render — `dev` or `prod-shaped` |
-| `DEV_CERT_TOOL` | `dev-vhost-cert` | A local wrapper around mkcert, if you've one. Plain `mkcert` is used when it's absent |
+| `DEV_CERT_TOOL` | `dev-vhost-cert` | A local wrapper around mkcert, if you have one. Plain `mkcert` is used when it's absent |
 | `ALLOW_BOTH` | unset | Set to `1` to run both runtimes at once. There's no good reason to |
 | `ALLOW_TIGHT` | unset | Set to `1` to create a store the memory check refuses |
 | `YES` | unset | Set to `1` to skip confirmation prompts, for unattended use |

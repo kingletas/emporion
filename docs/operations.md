@@ -72,9 +72,9 @@ make verify-namespaces
 make smoke
 ```
 
-Walks the acceptance criteria and reports each one pass, fail or skip. It doesn't stop at the first failure: a report of everything that's wrong is worth more than the first thing that's wrong.
+Walks the acceptance criteria against the cluster and reports each one pass, fail or skip. It doesn't stop at the first failure: a report of everything that's wrong is worth more than the first thing that's wrong. **On Compose it stops straight away and names the Compose checks instead**, because every check it makes goes through the cluster.
 
-**It runs A1 to A11.** A12 is this documentation and A13 has a command of its own — `make verify-namespaces`, below — because it asks about *every* store on the machine rather than about the one the smoke is pointed at.
+**It runs eight of them: A2 to A6, A8, A9 and A11.** A1, A7 and A10 each have a command of their own, named in the table. A12 is this documentation, and A13 is `make verify-namespaces`, above, because it asks about *every* store on the machine rather than about the one the smoke is pointed at.
 
 | | Criterion | How it's checked |
 |---|---|---|

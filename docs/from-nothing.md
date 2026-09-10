@@ -1,6 +1,6 @@
 # From nothing to a storefront
 
-This guide assumes you've a Linux machine, Docker, and no Magento experience beyond knowing it's a PHP shop. By the end you'll have a Magento store running on your own machine, you'll know which command does what, and you'll recognise the handful of errors that account for most of the trouble.
+This guide assumes you have a Linux machine, Docker, and no Magento experience beyond knowing it's a PHP shop. By the end you'll have a Magento store running on your own machine, you'll know which command does what, and you'll recognise the handful of errors that account for most of the trouble.
 
 **Nothing here reaches a production system.** Everything runs on your machine, the credentials are generated locally and guard nothing, and no step costs money.
 
@@ -201,10 +201,14 @@ Mail is caught rather than sent. Every message the store generates — password 
 Check the whole thing honestly:
 
 ```bash
-make smoke
+make compose-status
 ```
 
-That walks a list of acceptance criteria and reports each one pass, fail or skip. It doesn't stop at the first failure, because a report of everything that's wrong is worth more than the first thing that's wrong.
+```bash
+make verify-namespaces
+```
+
+The first shows every container and whether it's healthy. The second reads the configuration the running store actually loaded and checks it against the store's config file — the one mistake a healthy-looking store can still be making.
 
 ## A second store
 
@@ -280,6 +284,14 @@ make up
 ```
 
 **Never run both at once.** They serve the same hostname on one machine, and running two full Magento stacks will take the machine down. Both `up` commands refuse while the other is present, and that refusal is the feature.
+
+Once it's up, check it:
+
+```bash
+make smoke
+```
+
+That walks the acceptance criteria and reports each one pass, fail or skip. It doesn't stop at the first failure, because a report of everything that's wrong is worth more than the first thing that's wrong.
 
 The cluster is worth it for questions Compose cannot be asked: what happens when a pod is replaced, whether a storage claim binds, whether a readiness probe measures the thing it claims to, whether a rollout is safe. For everything else, use Compose.
 

@@ -10,6 +10,10 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 
   It stayed hidden because a store works fine until something tries to email. The first symptom is usually a fresh admin account that cannot complete two-factor setup, reporting only *"Failed to send the message. Please contact the administrator"*.
 
+- **The beginner guide sent a Compose store to the cluster's checks.** *From nothing to a storefront* ended its Compose walkthrough with `make smoke`, which only talks to the cluster, so a first run failed every check or asked for `kind` and `kubectl` it didn't need. The guide now checks a Compose store with `make compose-status` and `make verify-namespaces`, and runs `make smoke` after `make up`. `make smoke` itself now stops at once when there's no cluster and names the Compose checks.
+- **The operations page said `make smoke` runs A1 to A11.** It runs eight of them; the page now names which, and where the other five are checked.
+- Four sentences in the README and the guides had "you've" where only "you have" is grammatical.
+
 ## [0.1.0]: 2026-09-07
 
 First public release, under the name **Emporion**.

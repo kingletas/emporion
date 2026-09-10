@@ -40,6 +40,10 @@ while getopts ":c:h" opt; do
     esac
 done
 
+# Every check below talks to the cluster, so a Compose store gets pointed at
+# its own checks rather than a page of failures.
+cluster_exists || die "make smoke checks the kind cluster, and there is no cluster '${CLUSTER_NAME}'. On Compose, run: make compose-status && make verify-namespaces"
+
 need kubectl
 need curl
 

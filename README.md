@@ -11,7 +11,7 @@ A Magento environment is around twenty containers: PHP-FPM, nginx, Varnish, Mari
 
 They share it because Magento's namespacing is spread across five unrelated settings, and **four of the five fail silently when they collide.** Two stores on one queue vhost consume each other's messages, and the only evidence is work that never happened.
 
-Emporion is one description of a Magento environment with the runtime as a variable. `make compose-up` gives you a store in under a minute. `make new-site SITE=second.test` gives you another one, with its own database, cache keys, search index, queue vhost and mail, in about the time a database restore takes. And `make up` runs the same store on Kubernetes, when the question you've is about probes, claims or rollout rather than about Magento.
+Emporion is one description of a Magento environment with the runtime as a variable. `make compose-up` gives you a store in under a minute. `make new-site SITE=second.test` gives you another one, with its own database, cache keys, search index, queue vhost and mail, in about the time a database restore takes. And `make up` runs the same store on Kubernetes, when your question is about probes, claims or rollout rather than about Magento.
 
 ```bash
 make compose-up && make compose-install
@@ -76,7 +76,7 @@ Then `https://vanilla.test/`.
 
 ## Two things to know before you start
 
-**Adobe Commerce is licensed, and Magento Open Source is not.** `MAGENTO_SRC` points at whichever tree you've and nothing in this repository cares which. `make sample-data` is the one target that does: Adobe's sample data packages come from an authenticated `repo.magento.com`, so it checks for an `auth.json` and exits with a named error rather than half-running.
+**Adobe Commerce is licensed, and Magento Open Source is not.** `MAGENTO_SRC` points at whichever tree you have, and nothing in this repository cares which. `make sample-data` is the one target that does: Adobe's sample data packages come from an authenticated `repo.magento.com`, so it checks for an `auth.json` and exits with a named error rather than half-running.
 
 **A store is machine state and git does not track it.** Creating one writes a small env file and destroying it removes one, so those files are gitignored — with one exception the build needs. `make sites` reads the filesystem for the list, because which stores exist is a fact about your laptop rather than a claim this repository makes.
 
