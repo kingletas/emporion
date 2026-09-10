@@ -1,36 +1,12 @@
-# Repo-local ignore file, and it is load-bearing.
-#
-# ~/.gitignore is core.excludesFile for every repository under $HOME. It is a
-# Magento project's ignore list, and several of its rules reach into this tree
-# and exclude files this project cannot be reproduced without. Each negation
-# below answers exactly one of them:
-#
-#   *.sh                -> every script in scripts/ and build/rootfs/
-#   docker-compose.yaml -> the Compose runtime, at any depth
-#   nginx               -> see the directory note below
-#
-# Without them the tree looks clean, `make up` works on this machine, and the
-# repository is not reproducible anywhere else.
+# Keep the scripts, the Compose files and the nginx config directory tracked
+# even where a user-level excludes file ignores those names.
 !*.sh
 !docker-compose.yaml
-
-# The harder one, and it is not a file rule. ~/.gitignore excludes the bare
-# name `nginx`, which matches the DIRECTORY k8s/base/config/files/nginx. Git
-# does not descend into an excluded directory, so no `!*.conf` inside it would
-# ever be seen. The directory itself has to be re-included first, which is what
-# the first of these two lines does.
 !**/nginx/
 !**/nginx/**
 
-# Three more exclusions in ~/.gitignore have no negation here, because a
-# file-level negation cannot rescue a directory. They are avoided by naming
-# instead, which is a constraint on new files rather than a setting:
-#
-#   docker      -> build inputs live in build/, never in a docker/ directory
-#   production  -> the production Compose stack is docker-compose.yaml at the
-#                  root; nothing here may be named `production`
-#   .env        -> shared non-secret configuration is config/env/common.env,
-#                  deliberately not a dotfile
+# Shared non-secret configuration is config/env/common.env, not a dotfile,
+# because a user-level `.env` rule is common.
 #
 # Verify after adding anything new, because the failure is silent:
 #   git ls-files --others --ignored --exclude-standard
