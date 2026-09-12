@@ -40,6 +40,7 @@ Then `https://vanilla.test/`.
 | [More than one store](docs/sites.md) | A second storefront on demand, what keeps two stores apart, and snapshots |
 | [How it's put together](docs/architecture.md) | What the runtimes share, the four hard problems, and the layout |
 | [Running it](docs/operations.md) | Commands, the checks, resource limits, and debugging |
+| [Examples](docs/examples.md) | A recipe for each everyday task, the cluster explained in plain words, and the traps |
 | [Configuration](docs/configuration.md) | Every setting, which of the four places it lives in, and why |
 | [Decisions](docs/adr/) | Eight ADRs, each naming the alternative that nearly won |
 | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) | |
