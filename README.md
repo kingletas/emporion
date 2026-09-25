@@ -42,7 +42,7 @@ Then `https://vanilla.test/`.
 | [Running it](docs/operations.md) | Commands, the checks, resource limits, and debugging |
 | [Examples](docs/examples.md) | A recipe for each everyday task, the cluster explained in plain words, and the traps |
 | [Configuration](docs/configuration.md) | Every setting, which of the four places it lives in, and why |
-| [Decisions](docs/adr/) | Eight ADRs, each naming the alternative that nearly won |
+| [Decisions](docs/adr/) | Nine ADRs, each naming the alternative that nearly won |
 | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) | |
 
 ## Which runtime, and when
@@ -95,6 +95,7 @@ One file each, in [`docs/adr/`](docs/adr/). Each records the alternative that wa
 | [006](docs/adr/ADR-006-magento-source-and-licence.md) | The Magento tree is a build parameter | Vendoring it — tidy-looking, and licensed source in the history |
 | [007](docs/adr/ADR-007-dev-overlay-mounted-source.md) | Build both overlays | Drop the dev overlay — cleaner artifact, unusable environment |
 | [008](docs/adr/ADR-008-two-runtimes-one-image.md) | Compose beside the cluster, one image | Cluster only — one fewer thing, and a minute became several |
+| [009](docs/adr/ADR-009-publishing-as-emporion.md) | Published from a fresh root commit | Rewriting the history, which keeps the story and risks one that looks clean and isn't |
 
 ADR-003 and ADR-005 both end with a limitation rather than a resolution. That's the state of the work, not a gap in the writing.
 

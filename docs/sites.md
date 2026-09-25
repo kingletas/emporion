@@ -85,7 +85,7 @@ An exclusive site is **the same data compose file started again under a differen
 
 ### What keeps two stores out of each other's data
 
-Five namespaces, one per site, and **every one of them fails silently when it is wrong** — which is why they are all in the site's config file where they can be read together, and why `make lint` checks that no two sites share one:
+Five namespaces, one per site, and **four of the five fail silently when they are wrong**; only the database fails loudly. That is why they are all in the site's config file, where they can be read together, and why `make lint` checks that no two sites share one:
 
 | Namespace | Key | What a collision looks like |
 |---|---|---|
@@ -137,7 +137,7 @@ make new-site SITE=second.test SEED=none
 
 ## Snapshots — seeding the next store
 
-Installing from empty takes about twenty minutes and sample data longer again. Captured once, that becomes about a minute:
+Installing from empty takes about twenty minutes, and about forty with sample data loaded. Captured once, that becomes about a minute:
 
 ```bash
 make snapshot NAME=sample-data-baseline
