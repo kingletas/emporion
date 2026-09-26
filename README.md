@@ -41,7 +41,7 @@ Then `https://vanilla.test/`.
 | [How it's put together](docs/architecture.md) | What the runtimes share, the four hard problems, and the layout |
 | [Running it](docs/operations.md) | Commands, the checks, resource limits, and debugging |
 | [Examples](docs/examples.md) | A recipe for each everyday task, the cluster explained in plain words, and the traps |
-| [Configuration](docs/configuration.md) | Every setting, which of the four places it lives in, and why |
+| [Configuration](docs/configuration.md) | Every setting, which of the five places it lives in, and why |
 | [Decisions](docs/adr/) | Nine ADRs, each naming the alternative that nearly won |
 | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) | |
 
@@ -68,7 +68,7 @@ Then `https://vanilla.test/`.
 ## Requirements
 
 - **Docker**, with BuildKit, and your reverse proxy's Docker network (below). That's the whole list for the Compose runtime.
-- **A Magento 2 tree** at `MAGENTO_SRC`, defaulting to `commerce-vanilla/` beside this repository. Nothing here vendors Magento or installs it for you.
+- **A Magento 2 tree** at `MAGENTO_SRC`, defaulting to `commerce-vanilla/` beside this repository. Nothing here vendors Magento or installs it for you. **The default line is 2.4.9**, on PHP 8.5; a store can be pinned to 2.4.8 instead, as [The Magento line](docs/configuration.md#the-magento-line) describes.
 - **`kind` and `kubectl`** for the cluster runtime only. `make tools` installs both.
 - **Wildcard DNS for `.test`** pointing at your Docker bridge, and a reverse proxy in front of it — dnsmasq and nginx-proxy here. The cluster runtime binds `127.0.0.1` and needs one `/etc/hosts` line instead.
 - **The proxy's Docker network.** The Compose runtime joins it by name and fails to start if it doesn't exist. Set `PROXY_NETWORK` to your proxy's network (the default is `proxy-dns_default`), or, with no proxy at all, create an empty one: `docker network create proxy-dns_default`.

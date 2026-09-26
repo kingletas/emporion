@@ -7,6 +7,7 @@ A kind cluster and a Compose stack, deploying the same image from the same confi
 - [Which runtime, and when](#which-runtime-and-when)
 - [Two sources: the image, or the working tree](#two-sources-the-image-or-the-working-tree)
 - [The two cluster overlays](#the-two-cluster-overlays)
+- [One Magento line, both runtimes](#one-magento-line-both-runtimes)
 
 ---
 
@@ -88,5 +89,18 @@ make deploy OVERLAY=prod-shaped
 | Storefront replicas | 1 | 2 | 1 |
 
 An immutable image and a live-edited tree are directly opposed, and editing Magento in place is how the work actually gets done. **The `dev` overlay is the only thing here that takes the second side.** [ADR-007](adr/ADR-007-dev-overlay-mounted-source.md) records the trade and the risk it carries.
+
+
+## One Magento line, both runtimes
+
+**A store's `MAGENTO_LINE` decides the same versions in both runtimes.** The default is 2.4.9: PHP 8.5, MariaDB 12.3, Valkey 9.0, nginx 1.30.5 and Varnish 8.0.2. A store may name 2.4.8 instead.
+
+| | Compose | kind cluster |
+|---|---|---|
+| Where the versions come from | `versions/magento-<line>.env`, exported by `scripts/lib.sh` | the `images:` in `k8s/base/kustomization.yaml` for the default line; `k8s/components/magento-<line>/` for another |
+| How a store picks its line | its env file | the same file: `make deploy` adds the line's component to the overlay it generates |
+| PHP and Composer | build arguments from the versions file | the same, through `make image`, which builds for `SITE`'s line |
+
+**The versions file is the list, and the other places are checked copies of it.** Kustomize cannot set an image tag from an env file and Docker cannot read one into a Dockerfile, so the default line's values are repeated in the kustomization, the Compose fallbacks and the Dockerfile. `make lint` renders the cluster on each line and fails when any of them disagrees with its versions file. [The Magento line](configuration.md#the-magento-line) has the table, how to pin a store, and the MariaDB upgrade.
 
 ---

@@ -133,8 +133,10 @@ cd ..
 
 ```bash
 composer create-project --repository-url=https://repo.magento.com/ \
-    magento/project-community-edition=2.4.8-p2 commerce-vanilla
+    magento/project-community-edition=2.4.9 commerce-vanilla
 ```
+
+2.4.9 is the Magento line this repository runs by default, with PHP 8.5. A tree of another line needs that line set for its store; see [The Magento line](configuration.md#the-magento-line).
 
 Composer will ask for those two keys the first time. This downloads roughly 900 MB and takes a few minutes.
 

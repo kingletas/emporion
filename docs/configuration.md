@@ -1,11 +1,12 @@
 # Configuration
 
-Every setting here lives in one of four places, and which one it lives in is a decision rather than filing:
+Every setting here lives in one of five places, and which one it lives in is a decision rather than filing:
 
 | Where | What belongs in it |
 |---|---|
 | **Environment variables** | facts about *your machine* — where the Magento tree is, where certificates are |
 | **`k8s/base/config/env/common.env`** | what every store shares — service addresses, behaviour, the consumer list |
+| **`versions/magento-<line>.env`** | what one Magento line runs: the PHP and Composer versions and every service image tag |
 | **`k8s/base/config/env/sites/<slug>.env`** | what one store cannot share with another — its database, its cache keys, its hostname |
 | **`secrets/`** | generated credentials. Never edited by hand, never committed |
 
@@ -15,6 +16,7 @@ Every setting here lives in one of four places, and which one it lives in is a d
 
 - [Environment variables](#environment-variables)
 - [`common.env` — what every store shares](#commonenv--what-every-store-shares)
+- [The Magento line](#the-magento-line)
 - [The per-store file](#the-per-store-file)
 - [Make variables](#make-variables)
 - [Secrets](#secrets)
@@ -30,7 +32,7 @@ These describe your machine. Set them in your shell, or accept the defaults.
 | `CERTS_HOME` | `certs/` in the repository | Where `<host>.crt` and `<host>.key` are found. Gitignored |
 | `SNAPSHOT_DIR` | `../snapshots` | Where `make snapshot` writes and `snapshot-restore` reads |
 | `IMAGE_NAME` | `magento-app` | The image name |
-| `IMAGE_TAG` | `local` | The image tag. **Change this to build a second image without replacing the first** |
+| `IMAGE_TAG` | `local` | The image tag. **Change this to build a second image without replacing the first**. A store on a line other than the default adds `-<line>`, so `local-2.4.8` |
 | `CLUSTER_NAME` | `vanilla` | The kind cluster's name |
 | `NAMESPACE` | `vanilla` | The Kubernetes namespace |
 | `OVERLAY` | `dev` | Which cluster overlay to render — `dev` or `prod-shaped` |
@@ -101,6 +103,131 @@ The queue consumers to run. **Core Magento only, on purpose** — a queue belong
 
 This list and the Deployments in `k8s/base/jobs/consumers.yaml` must agree, and the mismatch is invisible in both directions: a consumer that's not named never runs, and nothing reports it. `make verify-consumers` compares three sets — the list, the cluster Deployments and the Compose services.
 
+## The Magento line
+
+**Every store runs one Magento line, and the line decides every version in its stack**: the PHP and Composer its image is built with, and the tag of every service image. **2.4.9 is the default.** 2.4.8 is still selectable, one store at a time.
+
+| Line | PHP | Composer | MariaDB | Valkey | nginx | Varnish | OpenSearch | RabbitMQ |
+|---|---|---|---|---|---|---|---|---|
+| **2.4.9** (default) | 8.5 | 2.10.3 | 12.3 | 9.0 | 1.30.5 | 8.0.2 | 3 | 4.3 |
+| 2.4.8 | 8.4 | 2.9.3 | 11.4 | 8.0 | 1.28.0 | 7.5.0 | 3 | 4.3 |
+
+The 2.4.9 row follows Adobe's self-hosted system requirements for 2.4.9. The 2.4.8 row is the set this repository has run 2.4.8 stores on.
+
+**Each line is one file, `versions/magento-<line>.env`, and that file is the list.** `scripts/lib.sh` exports it for Compose and for the image build. Three other places repeat the default line's values because they cannot read an env file: the `${NAME:-default}` fallbacks in the Compose files, the `ARG` defaults in `build/Dockerfile`, and the `images:` tags in `k8s/base/kustomization.yaml`. A line other than the default also has a kustomize component, `k8s/components/magento-<line>/`, carrying its tags. **`make lint` renders the cluster on every line and fails when any copy disagrees with its versions file**, so a copy can drift only as far as the next lint.
+
+### Which line a store runs
+
+`MAGENTO_LINE`, read like any other key: `common.env` names the default, and a store's own file may name another.
+
+| Where | `MAGENTO_LINE` | Means |
+|---|---|---|
+| `common.env` | `2.4.9` | the default line: the line the shared data tier runs, and the line the base manifests render |
+| a store's file | absent | the store follows the default line |
+| a store's file | `2.4.8` | the store runs the 2.4.8 line, and **must be exclusive** |
+
+> [!IMPORTANT] A store on another line must be exclusive
+> The shared data tier can run only one MariaDB, and it runs the default line's. Magento's database version check lists no MariaDB 12 in 2.4.8, nor in 2.4.8-p5, so a 2.4.8 store cannot share a 2.4.9 tier. Every command refuses a shared store whose line is not the default, naming the file to change, rather than letting the first database call find out.
+
+**Both runtimes honour the one setting.** Compose reads the store's versions file. On the cluster, `make deploy` adds the line's component to the overlay it generates for the store, and points it at the store's application image.
+
+**The application image is tagged per line.** Default-line stores share `magento-app:local`; a 2.4.8 store runs `magento-app:local-2.4.8`, so building it never replaces the image every other store runs. It is built from its own Magento tree, `SITE_MAGENTO_SRC`, because the shared tree is the default line's.
+
+**`make new-site` writes the line into the store's file**, so a later change of the default in `common.env` does not move an existing store. A store created before lines existed has no `MAGENTO_LINE` and follows the default.
+
+### Pinning a store to 2.4.8
+
+A new store:
+
+```bash
+make new-site SITE=old.test MODE=exclusive LINE=2.4.8 SRC=../commerce-248
+```
+
+`SRC` is a Magento 2.4.8 tree. `new-site` refuses a line other than the default without one.
+
+An existing shared store moves to a data tier of its own, which starts empty, so its database travels as a snapshot:
+
+1. `make snapshot SITE=old.test NAME=old-before-2.4.8`, while it is running.
+2. `make compose-down SITE=old.test`.
+3. In its file under `k8s/base/config/env/sites/`:
+
+    ```text
+    MAGENTO_LINE=2.4.8
+    SITE_MODE=exclusive
+    SITE_MAGENTO_SRC=/path/to/a/2.4.8/tree
+    ```
+
+4. `make compose-build SITE=old.test`, which builds `magento-app:local-2.4.8` from that tree and starts the store's own data tier.
+5. `make snapshot-restore SITE=old.test FILE=../snapshots/old-before-2.4.8.sql.zst`.
+6. `make compose-install SITE=old.test`.
+
+Its old database stays in the shared tier until you drop it.
+
+### Moving MariaDB from 11.4 to 12.3
+
+> [!DANGER] The first start on the 2.4.9 line upgrades an existing database in place, and MariaDB cannot go back
+> The data tier sets `MARIADB_AUTO_UPGRADE`, so the first time a MariaDB 12.3 container starts on a volume an 11.4 server wrote, it upgrades the system tables in place. MariaDB does not support downgrading between major versions: once 12.3 has started on the volume, 11.4 is not guaranteed to read it. **Take both copies below before the first `make compose-up`, `make data-up` or `make new-site` on this version**, and before `make deploy` on an existing cluster.
+>
+> This procedure has not yet been rehearsed end to end.
+
+Before the first start on 2.4.9, with the store still running on the version you are leaving:
+
+1. **A logical snapshot of every store on the tier.** It restores into any MariaDB, so it is the way back that does not depend on the volume.
+
+    ```bash
+    make snapshot SITE=vanilla.test NAME=vanilla-before-mariadb-12
+    ```
+
+2. **A copy of the stopped volume**, the fastest way back. Stop every store on the tier and then the tier, and copy the volume with the 11.4 image the tier was running:
+
+    ```bash
+    make compose-down SITE=vanilla.test
+    ```
+
+    ```bash
+    make data-down
+    ```
+
+    ```bash
+    docker volume create magento-data_db-data-11.4
+    ```
+
+    ```bash
+    docker run --rm --entrypoint cp \
+        -v magento-data_db-data:/from:ro -v magento-data_db-data-11.4:/to \
+        mariadb:11.4 -a /from/. /to/
+    ```
+
+    The shared tier's volume is `magento-data_db-data`; an exclusive store's is `magento-data-<slug>_db-data`.
+
+Then start the store on 2.4.9 as usual. The upgrade runs once, at that start.
+
+**The way back** puts the tier on 11.4 again, which means the default line goes back to 2.4.8, because the shared tier always runs the default line:
+
+1. Stop every store on the tier, then the tier: `make compose-down SITE=<store>` for each, then `make data-down`.
+2. Set `MAGENTO_LINE=2.4.8` in `common.env`. Every store that follows the default now runs 2.4.8, and needs a 2.4.8 tree and a rebuilt image.
+3. Put the copy back. **This deletes the upgraded database**:
+
+    ```bash
+    docker volume rm magento-data_db-data
+    ```
+
+    ```bash
+    docker volume create magento-data_db-data
+    ```
+
+    ```bash
+    docker run --rm --entrypoint cp \
+        -v magento-data_db-data-11.4:/from:ro -v magento-data_db-data:/to \
+        mariadb:11.4 -a /from/. /to/
+    ```
+
+4. `make compose-up`. Without the volume copy, start on an empty volume instead and `make snapshot-restore FILE=../snapshots/vanilla-before-mariadb-12.sql.zst` for each store.
+
+MariaDB's upgrade also writes a backup of its system tables, `system_mysql_backup_*.sql.zst`, into the data directory. That covers the system tables only, not the stores.
+
+**On the cluster**, `make up` builds everything from nothing, so a new cluster has nothing to upgrade. `make deploy` on an existing cluster rolls MariaDB to 12.3 on its existing claim and upgrades it in place. Take `make snapshot` first; the way back is `make down`, the default line back to 2.4.8, `make up`, and `make snapshot-restore`.
+
 ## The per-store file
 
 `k8s/base/config/env/sites/<slug>.env`, written by `make new-site`. The slug is the hostname with dots replaced by hyphens.
@@ -134,6 +261,7 @@ The rest of the file:
 | `MAGENTO_BASE_URL` | the store's base URL |
 | `DB_USER` | this store's database user |
 | `SITE_MODE` | `shared` or `exclusive` — which data tier this store attaches to |
+| `MAGENTO_LINE` | the Magento line, when it is not the default. A line other than the default needs `SITE_MODE=exclusive`. See [The Magento line](#the-magento-line) |
 | `SITE_SOURCE` | `image` or `mounted` — where the application code comes from |
 | `SITE_SEED` | which snapshot this store was seeded from, or `none` |
 | `SITE_IMAGE_TAG` | overrides `IMAGE_TAG` for this store. Empty means the shared image |
@@ -154,6 +282,8 @@ Passed on the command line: `make new-site SITE=second.test MODE=exclusive`.
 | `SITE` | `vanilla.test` | The store to act on. Every store command takes it |
 | `MODE` | `shared` | `shared` or `exclusive`, for `new-site` |
 | `SEED` | `sample-data-baseline` | Which snapshot to seed from. `none` installs from empty |
+| `LINE` | the default line | The Magento line, for `new-site`. Another line needs `MODE=exclusive` and `SRC` |
+| `SRC` | the shared tree | This store's own Magento tree, for `new-site`. Required with `LINE` |
 | `OVERLAY` | `dev` | Which cluster overlay to deploy |
 | `NAMESPACE` | `vanilla` | The Kubernetes namespace |
 | `CLUSTER` | `vanilla` | The kind cluster name |

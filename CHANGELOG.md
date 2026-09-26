@@ -4,6 +4,21 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Added
+
+- **A store can be pinned to a Magento line.** `MAGENTO_LINE` in a store's env file picks one of `versions/magento-<line>.env`, and both runtimes run that line's PHP, Composer and service images. Compose reads the versions file; on the cluster, `make deploy` adds the line's component from `k8s/components/`. The 2.4.8 line stays selectable this way: `make new-site SITE=old.test MODE=exclusive LINE=2.4.8 SRC=../<2.4.8 tree>`. `make sites` shows each store's line.
+- **Every image tag is a variable.** Compose reads `${NAME:-default}` tags and passes `PHP_VERSION` and `COMPOSER_VERSION` to the build; the cluster sets every tag through `images:` in `k8s/base/kustomization.yaml`, and the manifests name their images without one.
+- **`make lint` checks that every copy of a line's versions agrees with its versions file**, rendering the cluster on each line to do it. Kustomize cannot read an env file into an image tag and Docker cannot read one into a Dockerfile, so the default line's values are repeated in three places; the check is what makes those copies safe to have.
+
+### Changed
+
+- **The Magento 2.4.9 line is the default**, following Adobe's self-hosted system requirements for 2.4.9: PHP 8.4 to 8.5, Composer 2.9.3 to 2.10.3, MariaDB 11.4 to 12.3, both Valkeys 8.0 to 9.0, nginx 1.28.0 to 1.30.5 and Varnish 7.5.0 to 8.0.2. OpenSearch 3 and RabbitMQ 4.3 are unchanged. Magento 2.4.8 declares PHP 8.2 to 8.4 and 2.4.9 declares 8.3 to 8.5, so a store on a 2.4.8 tree has to be pinned to the 2.4.8 line or moved to a 2.4.9 tree before its image is rebuilt. The beginner guide now creates a 2.4.9 tree.
+- **A store off the default line must be exclusive**, and every command refuses one that is shared. The shared data tier runs the default line's MariaDB 12.3, and Magento 2.4.8's database version check lists no MariaDB 12.
+- **A store off the default line gets its own application image**, `magento-app:local-<line>`, so building it never replaces the image the default-line stores share.
+
+> [!WARNING] The first start on 2.4.9 upgrades an existing MariaDB 11.4 volume to 12.3 in place
+> `MARIADB_AUTO_UPGRADE` is set, and MariaDB does not support going back between major versions. Take a snapshot of every store and a copy of the stopped volume first. [The Magento line](docs/configuration.md#moving-mariadb-from-114-to-123) has the steps and the way back, which has not yet been rehearsed.
+
 ### Fixed
 
 - **Magento could not send mail at all.** Both runtimes ship a MailHog sink and nothing pointed Magento at it, so it fell back to its default `sendmail` transport — which the image does not have. Every message failed. The entrypoint now writes `system/smtp` into `env.php` alongside the base URL, defaulting to `mailhog:1025`, which is the service name in both runtimes.

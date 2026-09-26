@@ -125,9 +125,24 @@ make new-site SITE=second.test SEED=none
 >
 > Which stores exist is a fact about this laptop, so `make sites` reads the filesystem for the list and `docker ps` for the state — a config file existing is not a claim that the store does.
 
+### A store on another Magento line
+
+**Every store runs the default Magento line, 2.4.9, unless its file names another.** A store that has to stay on 2.4.8 is created with the line and a 2.4.8 tree of its own:
+
+```bash
+make new-site SITE=old.test MODE=exclusive LINE=2.4.8 SRC=../commerce-248
+```
+
+**It has to be exclusive.** The shared data tier runs one MariaDB, the default line's 12.3, and Magento 2.4.8's database version check lists no MariaDB 12. So a store off the default line gets its own tier, on its own line's versions: MariaDB 11.4, Valkey 8.0. Every command refuses a shared store whose line is not the default, and names the file to change.
+
+**It gets its own image**, `magento-app:local-2.4.8`, built from its own tree with PHP 8.4, so building it never replaces the image the default-line stores share. `make sites` shows every store's line.
+
+Moving an existing store to 2.4.8, and the MariaDB 12.3 upgrade a store on the default line meets, are in [The Magento line](configuration.md#the-magento-line).
+
 ### What is not built
 
 - **The cluster serves one site at a time.** `make deploy SITE=second.test` points it at another store by generating a small overlay over the chosen one — the site's env file merged into the ConfigMap, and the ingress host and TLS secret rewritten. There's no second port for a second hostname, and pretending otherwise would be a claim the runtime cannot keep.
+- **A store on another Magento line takes its line with it to the cluster.** The generated overlay adds that line's component from `k8s/components/` and points at the store's own application image.
 - **The shared Valkey caps a data tier at eight sites**, because a site takes two of its sixteen databases. `site.sh` allocates them from what the config files already use and refuses when they run out, rather than wrapping.
 - **The eviction pool is shared.** A busy store can evict a quiet one's cache entries. That's correct for a reconstructible cache and a real difference from a private Valkey; it's stated rather than left to be found.
 - **Nothing here bounds CPU.** The memory guard is a memory guard.
