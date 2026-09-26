@@ -52,10 +52,14 @@ check "and within one major"                 upgrade "$(mariadb_upgrade_verdict 
 # --- the reader, against directories standing in for a volume ------------
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/empty" "$tmp/noinfo/mysql" "$tmp/recorded/mysql"
+mkdir -p "$tmp/empty" "$tmp/noinfo/mysql" "$tmp/blankinfo/mysql" "$tmp/recorded/mysql"
 printf '11.4.13-MariaDB' > "$tmp/recorded/mariadb_upgrade_info"
+: > "$tmp/blankinfo/mariadb_upgrade_info"
 check "an empty volume records nothing"      ""   "$(sh -c "$MARIADB_RECORDED_SH" sh "$tmp/empty")"
 check "a database with no info records ?"    "?"  "$(sh -c "$MARIADB_RECORDED_SH" sh "$tmp/noinfo")"
+check "an empty info file records ?"         "?"  "$(sh -c "$MARIADB_RECORDED_SH" sh "$tmp/blankinfo")"
+printf '\n11.4.13-MariaDB\n' > "$tmp/blankinfo/mariadb_upgrade_info"
+check "a blank first line records ?"         "?"  "$(sh -c "$MARIADB_RECORDED_SH" sh "$tmp/blankinfo")"
 check "a recorded version is read"           11.4.13-MariaDB "$(sh -c "$MARIADB_RECORDED_SH" sh "$tmp/recorded")"
 
 # --- the refusal names both versions and the image that wrote the volume ---

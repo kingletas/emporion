@@ -154,6 +154,7 @@ networks:
     name: ${DATA_NETWORK:-magento-data}
 
 volumes:
+  # The MariaDB upgrade guard finds this volume by its Compose labels; an external volume has none and would pass it unread.
   db-data:
   opensearch-data:
   rabbitmq-data:

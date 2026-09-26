@@ -207,6 +207,9 @@ guard_cluster_mariadb() {
     local target current recorded="" claim="data-mariadb-0"
     target="$(sed -n 's/^[[:space:]-]*image: mariadb:\([^[:space:]]*\).*/\1/p' "$1" | head -n1)"
     [[ -n "$target" ]] || die "the rendered manifests name no mariadb image"
+    # Every lookup below reads a failure as "no database yet", so an unreachable cluster must stop here.
+    kc auth can-i get persistentvolumeclaims -n "$NAMESPACE" >/dev/null 2>&1 \
+        || die "cannot read claims in ${NAMESPACE} on kind-${CLUSTER_NAME}, so it cannot tell whether MariaDB holds data; check the cluster and context"
     current="$(kc -n "$NAMESPACE" get statefulset mariadb \
         -o jsonpath='{.spec.template.spec.containers[?(@.name=="mariadb")].image}' 2>/dev/null || true)"
     [[ "$current" == "mariadb:${target}" ]] && return 0

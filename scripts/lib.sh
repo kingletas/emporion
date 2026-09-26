@@ -497,7 +497,7 @@ mariadb_upgrade_allowed() {
 # The shell a short-lived container runs against a data directory at $1 to
 # report what it records: nothing for a new or empty volume, `?` for a
 # database with no upgrade information, otherwise the recorded version.
-MARIADB_RECORDED_SH='d="$1"; if [ -d "$d/mysql" ]; then if [ -r "$d/mariadb_upgrade_info" ]; then head -n1 "$d/mariadb_upgrade_info"; else echo "?"; fi; fi'
+MARIADB_RECORDED_SH='d="$1"; if [ -d "$d/mysql" ]; then l=$(head -n1 "$d/mariadb_upgrade_info" 2>/dev/null | tr -d "[:space:]"); if [ -n "$l" ]; then echo "$l"; else echo "?"; fi; fi'
 
 # Refuse to start this data tier's MariaDB on a volume a different line wrote,
 # naming both versions and how to take a copy first. Silent when the container
