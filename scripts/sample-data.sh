@@ -25,9 +25,9 @@
 # the username and the private key is the password.
 #
 # Composer runs inside the `dev` image rather than on the host, because that
-# image already has PHP 8.4 with the extension set Magento's own dependency
-# resolution checks against. A host composer with a different PHP resolves a
-# different tree.
+# image already has the site's line's PHP with the extension set Magento's own
+# dependency resolution checks against. A host composer with a different PHP
+# resolves a different tree.
 
 set -euo pipefail
 
@@ -47,7 +47,7 @@ done
 need docker
 
 AUTH_JSON="${AUTH_JSON:-${MAGENTO_SRC}/auth.json}"
-DEV_IMAGE="${IMAGE_NAME}:local-dev"
+DEV_IMAGE="${IMAGE_NAME}:${LINE_IMAGE_TAG}-dev"
 
 [[ -d "$MAGENTO_SRC" ]] || die "no Magento tree at ${MAGENTO_SRC}"
 

@@ -45,7 +45,7 @@ spec:
         fsGroup: 999
       containers:
         - name: valkey
-          image: valkey/valkey:8.0-alpine
+          image: valkey/valkey  # tag: images in k8s/base/kustomization.yaml
           # appendonly, because the default RDB snapshot loses up to the
           # snapshot interval on an unclean stop — and for sessions that is
           # measured in logged-out users.
@@ -120,7 +120,7 @@ spec:
     spec:
       containers:
         - name: valkey
-          image: valkey/valkey:8.0-alpine
+          image: valkey/valkey  # tag: images in k8s/base/kustomization.yaml
           # allkeys-lru and no persistence. This is a cache: it is allowed to
           # forget, and being explicit about that is what makes the emptyDir
           # honest rather than lazy.

@@ -46,7 +46,7 @@ spec:
     spec:
       containers:
         - name: varnish
-          image: varnish:7.5.0
+          image: varnish  # tag: images in k8s/base/kustomization.yaml
           args:
             # Same tuned parameters as the Compose service. Magento sends very
             # large response headers (the X-Magento-Tags list on a category

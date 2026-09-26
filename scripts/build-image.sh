@@ -15,8 +15,11 @@
 # Environment overrides:
 #   MAGENTO_SRC        Magento tree to build   (default: the commerce-vanilla
 #                                              tree; see scripts/lib.sh)
+#   SITE               whose Magento line to build (default: vanilla.test)
 #   IMAGE_NAME         image name              (default: magento-app)
-#   IMAGE_TAG          image tag               (default: dev)
+#   IMAGE_TAG          image tag               (default: local; a site on a
+#                                              line other than the default
+#                                              gets local-<line>)
 #   COMPILE_EXCLUDES   vendor packages removed before di:compile
 #                                              (default: empty — nothing in
 #                                              this tree needs excluding)
@@ -27,6 +30,8 @@
 #
 # The dev target contains no application code on purpose — the dev overlay
 # mounts the working tree in. See ADR-007.
+#
+# PHP and Composer come from the site's MAGENTO_LINE, through versions/.
 
 set -euo pipefail
 
@@ -56,10 +61,12 @@ COMPILE_EXCLUDES="${COMPILE_EXCLUDES-}"
 SKIP_COMPILE="${SKIP_COMPILE:-false}"
 STATIC_LOCALES="${STATIC_LOCALES:-en_US}"
 
+export_line_versions
+
 case "$TARGET" in
-    runtime|builder) TAG="${IMAGE_NAME}:${IMAGE_TAG}" ;;
-    dev)             TAG="${IMAGE_NAME}:${IMAGE_TAG}-dev" ;;
-    php-base)        TAG="${IMAGE_NAME}:${IMAGE_TAG}-base" ;;
+    runtime|builder) TAG="${IMAGE_NAME}:${LINE_IMAGE_TAG}" ;;
+    dev)             TAG="${IMAGE_NAME}:${LINE_IMAGE_TAG}-dev" ;;
+    php-base)        TAG="${IMAGE_NAME}:${LINE_IMAGE_TAG}-base" ;;
     *) die "unknown target '${TARGET}'; try -h" ;;
 esac
 
@@ -71,6 +78,8 @@ args=(
     --build-arg "COMPILE_EXCLUDES=${COMPILE_EXCLUDES}"
     --build-arg "SKIP_COMPILE=${SKIP_COMPILE}"
     --build-arg "STATIC_LOCALES=${STATIC_LOCALES}"
+    --build-arg "PHP_VERSION=${PHP_VERSION}"
+    --build-arg "COMPOSER_VERSION=${COMPOSER_VERSION}"
 )
 
 # Only the targets that actually contain application code need the source.
@@ -99,7 +108,7 @@ if [[ $DRY -eq 1 ]]; then
     exit 0
 fi
 
-log "Building ${TAG} (target: ${TARGET})"
+log "Building ${TAG} (target: ${TARGET}, Magento ${MAGENTO_LINE} line: PHP ${PHP_VERSION}, Composer ${COMPOSER_VERSION})"
 DOCKER_BUILDKIT=1 "${args[@]}"
 
 if [[ "${NO_LOAD:-0}" == "1" ]]; then

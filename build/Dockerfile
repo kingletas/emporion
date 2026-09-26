@@ -23,7 +23,10 @@
 # into the image and the entrypoint prints it again at start: a workaround
 # nobody can see is indistinguishable from a bug. See ADR-004.
 
-ARG PHP_VERSION=8.4
+# PHP and Composer follow the site's Magento line: scripts/build-image.sh and
+# the Compose build pass both from versions/, and these defaults are the
+# default line.
+ARG PHP_VERSION=8.5
 
 # =============================================================================
 # php-base — everything the application needs to run, and nothing it needs to
@@ -69,7 +72,8 @@ RUN set -eux; \
 # SourceGuardian. Required by encoded vendor packages in the on-premise source
 # tree; harmless on Magento Open Source, where nothing is encoded. Kept in the
 # base rather than made conditional so both source options produce an image
-# with the same runtime surface.
+# with the same runtime surface. It copies ixed.<PHP>.lin out of the tarball,
+# so a PHP version the tarball has no loader for fails the build at the cp.
 RUN set -eux; \
     mkdir -p /tmp/sg; cd /tmp/sg; \
     curl -fsSL "${SG_DOWNLOAD_URL}" -o loaders.tar.gz; \
@@ -108,7 +112,7 @@ CMD ["php-fpm", "-F"]
 # composer — a thin layer the two targets that need composer share.
 # =============================================================================
 FROM php-base AS composer
-ARG COMPOSER_VERSION=2.9.3
+ARG COMPOSER_VERSION=2.10.3
 RUN set -eux; \
     curl -fsSL https://getcomposer.org/installer | php -- \
         --install-dir=/usr/local/bin --filename=composer --version="${COMPOSER_VERSION}"; \

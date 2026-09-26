@@ -1,0 +1,26 @@
+# The Magento 2.4.8 line for the cluster: the image tags in
+# versions/magento-2.4.8.env, applied over the base's 2.4.9 tags.
+#
+# scripts/deploy.sh adds this component to the overlay it generates for a site
+# whose MAGENTO_LINE is 2.4.8, and sets the application image's tag there too,
+# because that tag also depends on the overlay. `make lint` renders both
+# overlays with this component and fails when a tag here disagrees with the
+# versions file.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+images:
+  - name: mariadb
+    newTag: "11.4"
+  - name: valkey/valkey
+    newTag: "8.0-alpine"
+  - name: nginx
+    newTag: "1.28.0"
+  - name: varnish
+    newTag: "7.5.0"
+  - name: opensearchproject/opensearch
+    newTag: "3"
+  - name: rabbitmq
+    newTag: "4.3-management-alpine"
+  - name: mailhog/mailhog
+    newTag: "v1.0.1"

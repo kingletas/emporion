@@ -103,7 +103,7 @@ spec:
               memory: 256Mi
       containers:
         - name: nginx
-          image: nginx:1.28.0
+          image: nginx  # tag: images in k8s/base/kustomization.yaml
           ports:
             - name: http
               containerPort: 8080
@@ -245,7 +245,7 @@ spec:
               memory: 256Mi
       containers:
         - name: nginx
-          image: nginx:1.28.0
+          image: nginx  # tag: images in k8s/base/kustomization.yaml
           ports:
             - name: http
               containerPort: 8080
@@ -387,7 +387,7 @@ spec:
               memory: 256Mi
       containers:
         - name: nginx
-          image: nginx:1.28.0
+          image: nginx  # tag: images in k8s/base/kustomization.yaml
           ports:
             - name: http
               containerPort: 8080

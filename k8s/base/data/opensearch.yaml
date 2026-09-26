@@ -54,7 +54,7 @@ spec:
             runAsUser: 0
       containers:
         - name: opensearch
-          image: opensearchproject/opensearch:3
+          image: opensearchproject/opensearch  # tag: images in k8s/base/kustomization.yaml
           ports:
             - name: http
               containerPort: 9200

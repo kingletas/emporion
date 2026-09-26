@@ -65,8 +65,21 @@ DIR="${K8S_REPO_ROOT}/k8s/overlays/${OVERLAY}"
 # file is COPIED in rather than referenced, because kustomize refuses to read a
 # file outside the kustomization root -- the same restriction that keeps
 # common.env under k8s/base.
+#
+# A site on a Magento line other than the default also gets that line's
+# component, which retags the service images, and its own application image
+# tag. The tag is set here rather than in the component because it also
+# depends on the overlay: the dev overlay runs the -dev build.
 [[ -f "$SITE_ENV_FILE" ]] || die "no site '${SITE}'. Existing sites: $(site_list | tr '\n' ' ')"
-if [[ "$SITE_SLUG" != "vanilla-test" ]]; then
+LINE_COMPONENT=""
+if [[ "$MAGENTO_LINE" != "$DEFAULT_LINE" ]]; then
+    LINE_COMPONENT="${K8S_REPO_ROOT}/k8s/components/magento-${MAGENTO_LINE}"
+    [[ -f "${LINE_COMPONENT}/kustomization.yaml" ]] \
+        || die "the ${MAGENTO_LINE} line has no cluster component at ${LINE_COMPONENT}"
+    APP_TAG="$LINE_IMAGE_TAG"
+    [[ "$OVERLAY" == "dev" ]] && APP_TAG="${APP_TAG}-dev"
+fi
+if [[ "$SITE_SLUG" != "vanilla-test" || -n "$LINE_COMPONENT" ]]; then
     # A dry run leaves nothing behind, so it renders from a temporary directory
     # that is removed on exit. It has to be a SIBLING of the overlay it builds
     # on: kustomize rejects an absolute path in `resources:` outright --
@@ -114,8 +127,20 @@ patches:
         path: /spec/tls/0/secretName
         value: ${SITE_SLUG}-tls
 KUSTOMIZE
+    if [[ -n "$LINE_COMPONENT" ]]; then
+        cat >> "${GEN}/kustomization.yaml" <<KUSTOMIZE
+
+# The Magento ${MAGENTO_LINE} line, from MAGENTO_LINE in the site's env file.
+components:
+  - ../../components/magento-${MAGENTO_LINE}
+
+images:
+  - name: magento-app
+    newTag: ${APP_TAG}
+KUSTOMIZE
+    fi
     DIR="$GEN"
-    log "Serving ${SITE} — generated ${GEN} over overlay '${OVERLAY}'"
+    log "Serving ${SITE} on the Magento ${MAGENTO_LINE} line: generated ${GEN} over overlay '${OVERLAY}'"
 fi
 
 if [[ $DRY -eq 1 ]]; then

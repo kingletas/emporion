@@ -89,6 +89,104 @@ if missing or clash:
 PY
 then ok; else bad; fi
 
+# EVERY MAGENTO LINE'S VERSIONS, EVERYWHERE THEY ARE REPEATED. versions/ holds
+# one list per line; the Compose fallbacks, the Dockerfile's ARG defaults and
+# the kustomize image tags repeat it because neither kustomize nor Docker can
+# read an env file into an image tag. Rendering the cluster with each line's
+# component checks the tags that actually deploy, not the text that sets them.
+step "magento lines agree"
+lines_tmp="$(mktemp -d)"
+trap 'rm -rf "$lines_tmp"' EXIT
+lines_rendered=1
+kubectl kustomize "${K8S_REPO_ROOT}/k8s/overlays/prod-shaped" > "${lines_tmp}/${DEFAULT_LINE}.yaml" \
+    || lines_rendered=0
+for comp in "${K8S_REPO_ROOT}"/k8s/components/magento-*/; do
+    [[ -d "$comp" ]] || continue
+    line="$(basename "$comp")"
+    line="${line#magento-}"
+    # A sibling of the overlays, because kustomize will not take an absolute
+    # path in `resources:`; the name matches the gitignored pattern deploy.sh
+    # uses for its own dry runs.
+    gen="$(mktemp -d "${K8S_REPO_ROOT}/k8s/overlays/.site-XXXXXX")"
+    printf '%s\n' \
+        'apiVersion: kustomize.config.k8s.io/v1beta1' \
+        'kind: Kustomization' \
+        'resources:' \
+        '  - ../prod-shaped' \
+        'components:' \
+        "  - ../../components/magento-${line}" > "${gen}/kustomization.yaml"
+    kubectl kustomize "$gen" > "${lines_tmp}/${line}.yaml" || lines_rendered=0
+    rm -rf "$gen"
+done
+if [[ $lines_rendered -eq 1 ]] && python3 - "$K8S_REPO_ROOT" "$lines_tmp" "$DEFAULT_LINE" <<'PY'
+import re, sys, pathlib
+root, rendered, default = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+# The image each version key tags. PHP and Composer are build arguments only.
+IMAGES = {"mariadb": "MARIADB_VERSION", "valkey/valkey": "VALKEY_VERSION",
+          "nginx": "NGINX_VERSION", "varnish": "VARNISH_VERSION",
+          "opensearchproject/opensearch": "OPENSEARCH_VERSION",
+          "rabbitmq": "RABBITMQ_VERSION", "mailhog/mailhog": "MAILHOG_VERSION"}
+BUILD = {"PHP_VERSION", "COMPOSER_VERSION"}
+KEYS = set(IMAGES.values()) | BUILD
+
+def read_env(path):
+    return dict(l.split("=", 1) for l in path.read_text().splitlines()
+                if "=" in l and not l.startswith("#"))
+
+lines = {p.name[len("magento-"):-len(".env")]: read_env(p)
+         for p in sorted((root / "versions").glob("magento-*.env"))}
+bad = []
+for line, v in lines.items():
+    for k in sorted(KEYS - v.keys()):
+        bad.append(f"versions/magento-{line}.env does not set {k}")
+    for k in sorted(v.keys() - KEYS):
+        bad.append(f"versions/magento-{line}.env sets {k}, which nothing reads")
+if default not in lines:
+    bad.append(f"common.env names MAGENTO_LINE={default}, and there is no versions/magento-{default}.env")
+want = lines.get(default, {})
+
+for f in ("docker-compose.yaml", "docker-compose.data.yaml"):
+    text = (root / f).read_text()
+    for k, val in re.findall(r"\$\{([A-Z_]+):-([^}]*)\}", text):
+        if k in KEYS and want.get(k) != val:
+            bad.append(f"{f}: ${{{k}:-{val}}}, but the {default} line says {want.get(k)}")
+for k in sorted(set(IMAGES.values()) | BUILD):
+    if not any(f"${{{k}:-" in (root / f).read_text()
+               for f in ("docker-compose.yaml", "docker-compose.data.yaml")):
+        bad.append(f"no Compose file reads {k}")
+
+for k, val in re.findall(r"^ARG (PHP_VERSION|COMPOSER_VERSION)=(.*)$",
+                         (root / "build" / "Dockerfile").read_text(), re.M):
+    if want.get(k) != val:
+        bad.append(f"build/Dockerfile: ARG {k}={val}, but the {default} line says {want.get(k)}")
+
+for r in sorted(rendered.glob("*.yaml")):
+    line = r.stem
+    if line not in lines:
+        bad.append(f"k8s/components/magento-{line} has no versions/magento-{line}.env")
+        continue
+    seen = set()
+    for image in re.findall(r"image:\s*(\S+)", r.read_text()):
+        name, _, tag = image.rpartition(":")
+        if name not in IMAGES:
+            continue
+        seen.add(name)
+        if tag != lines[line][IMAGES[name]]:
+            bad.append(f"the cluster on the {line} line runs {image}, but the versions file says {lines[line][IMAGES[name]]}")
+    for name in sorted(set(IMAGES) - seen):
+        bad.append(f"the cluster on the {line} line runs no {name} image")
+for line in sorted(lines):
+    if not (rendered / f"{line}.yaml").exists():
+        bad.append(f"the {line} line has no cluster component at k8s/components/magento-{line}")
+
+if bad:
+    print()
+    for b in sorted(set(bad)):
+        print(f"    DRIFT    {b}")
+    sys.exit(1)
+PY
+then ok; else bad; fi
+
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck -S warning "${K8S_REPO_ROOT}"/scripts/*.sh \

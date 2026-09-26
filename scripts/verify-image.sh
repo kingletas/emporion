@@ -7,7 +7,7 @@
 # achievable here and saying so precisely is worth more than a check that
 # passes by measuring something easier:
 #
-#   - the base image is php:8.4-fpm by tag, and that tag moves
+#   - the base image is php:<version>-fpm by tag, and that tag moves
 #   - apt-get pulls whatever the Debian mirror currently has
 #   - composer resolves within its constraints unless a lock is committed
 #   - every layer carries a build timestamp
@@ -25,7 +25,8 @@
 # Usage:  scripts/verify-image.sh [-h]
 #
 # Environment overrides:
-#   IMAGE_NAME / IMAGE_TAG   the image to verify
+#   IMAGE_NAME / IMAGE_TAG   the image to verify; a site on a line other
+#                            than the default adds -<line> to the tag
 
 set -euo pipefail
 
@@ -36,7 +37,7 @@ source "${HERE}/lib.sh"
 [[ "${1:-}" == "-h" ]] && { print_header "${BASH_SOURCE[0]}"; exit 0; }
 need docker
 
-TAG="${IMAGE_NAME}:${IMAGE_TAG}"
+TAG="${IMAGE_NAME}:${LINE_IMAGE_TAG}"
 docker image inspect "$TAG" >/dev/null 2>&1 || die "no image ${TAG}. Run: make image"
 
 log "Hashing the application content of ${TAG}"

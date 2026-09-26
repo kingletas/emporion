@@ -23,6 +23,15 @@
 #   scripts/site.sh data-up      start it
 #   scripts/site.sh data-down    stop it (refuses while a site is attached)
 #
+# THE IMAGE TAGS FOLLOW A MAGENTO LINE. scripts/lib.sh exports them from
+# versions/ for the site that starts the tier, and only an exclusive site may
+# be on a line other than the default, so the shared tier always runs the
+# default line. Each `${NAME:-default}` fallback below is that default line.
+#
+# MARIADB_AUTO_UPGRADE UPGRADES AN EXISTING VOLUME IN PLACE when the MariaDB
+# tag moves to a newer major, and MariaDB does not support going back. Take a
+# snapshot first; docs/configuration.md has the steps and the way back.
+#
 # IT CREATES NO DATABASE AND NO USER. MARIADB_DATABASE and MARIADB_USER would
 # only ever provision the FIRST site, and every later one would be created
 # some other way -- two mechanisms for one job, and the second only exercised
@@ -34,7 +43,7 @@ name: ${DATA_PROJECT:-magento-data}
 services:
 
   db:
-    image: mariadb:11.4
+    image: mariadb:${MARIADB_VERSION:-12.3}
     env_file:
       - ${DATA_SECRETS_DIR:?DATA_SECRETS_DIR is not set - run through scripts/site.sh}/compose-db.env
     environment:
@@ -59,7 +68,7 @@ services:
     restart: unless-stopped
 
   opensearch:
-    image: opensearchproject/opensearch:3
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-3}
     environment:
       # Named after the project rather than after a site: this cluster serves
       # every attached store, and each of them writes under its own
@@ -92,7 +101,7 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:4.3-management-alpine
+    image: rabbitmq:${RABBITMQ_VERSION:-4.3-management-alpine}
     env_file:
       - ${DATA_SECRETS_DIR:?DATA_SECRETS_DIR is not set - run through scripts/site.sh}/compose-rabbit.env
     volumes:
@@ -107,7 +116,7 @@ services:
     restart: unless-stopped
 
   valkey-session:
-    image: valkey/valkey:8.0-alpine
+    image: valkey/valkey:${VALKEY_VERSION:-9.0-alpine}
     # appendonly yes, and noeviction. Sessions are the one cache here that is
     # not reconstructible: losing it logs every signed-in user out, and an LRU
     # policy would do that quietly under load rather than failing a write.
@@ -121,7 +130,7 @@ services:
     restart: unless-stopped
 
   valkey-cache:
-    image: valkey/valkey:8.0-alpine
+    image: valkey/valkey:${VALKEY_VERSION:-9.0-alpine}
     # No persistence and allkeys-lru: everything in here is reconstructible by
     # definition, so evicting under pressure is correct rather than lossy.
     #

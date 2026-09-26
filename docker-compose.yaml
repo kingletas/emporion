@@ -16,7 +16,9 @@
 #
 # NOTHING IN THIS FILE NAMES A SITE. The project name, the hostname, the config
 # files, the secrets directory and the data network are all interpolated, and
-# every one of them is set by scripts/lib.sh from a single SITE variable. Run
+# every one of them is set by scripts/lib.sh from a single SITE variable. So are
+# the image tags and build arguments, from the versions file for the site's
+# MAGENTO_LINE; each `${NAME:-default}` fallback is the default line. Run
 # it through make — `docker compose -f docker-compose.yaml` on its own will
 # fail on the `:?` guards rather than start something half-configured.
 #
@@ -57,6 +59,11 @@ x-app-image: &app-image
     context: ./build
     dockerfile: Dockerfile
     target: runtime
+    # The site's Magento line decides both; scripts/lib.sh exports them from
+    # versions/, and the fallbacks are the default line.
+    args:
+      PHP_VERSION: ${PHP_VERSION:-8.5}
+      COMPOSER_VERSION: ${COMPOSER_VERSION:-2.10.3}
     additional_contexts:
       magento-src: ${MAGENTO_SRC:-../commerce-vanilla}
 
@@ -244,7 +251,7 @@ services:
     mem_limit: 4g
 
   web: &web
-    image: nginx:1.28.0
+    image: nginx:${NGINX_VERSION:-1.30.5}
     environment:
       FASTCGI_BACKEND: php-fpm
       # Restrict envsubst to FASTCGI_BACKEND so nginx's own $$variables survive
@@ -325,7 +332,7 @@ services:
   # =========================================================================
 
   varnish:
-    image: varnish:7.5.0
+    image: varnish:${VARNISH_VERSION:-8.0.2}
     # Same tuned parameters as the Deployment. Magento sends very large
     # response headers -- the X-Magento-Tags list on a category page -- and the
     # stock 8k limit truncates them into a 503.
@@ -434,7 +441,7 @@ services:
   # exactly the cross-site confusion this design is spending memory to avoid.
   # Measured at 3 MiB, which is the cheapest isolation in the file.
   mailhog:
-    image: mailhog/mailhog:v1.0.1
+    image: mailhog/mailhog:${MAILHOG_VERSION:-v1.0.1}
     environment:
       VIRTUAL_HOST: mail.${SITE_HOST:?set by scripts/lib.sh}
       VIRTUAL_PORT: "8025"

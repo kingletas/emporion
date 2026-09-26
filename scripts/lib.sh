@@ -53,6 +53,9 @@ CERTS_HOME="${CERTS_HOME:-${K8S_REPO_ROOT}/certs}"
 #   resolve_site <host>            switch to a named site, overrides ignored
 #   resolve_site <host> <mode>     the same, for a site whose file does not
 #                                  exist yet -- creation only
+#   resolve_site <host> <mode> <line>
+#                                  creation, on a Magento line other than the
+#                                  default
 #
 # The slug is the hostname with dots replaced: it names the Compose project,
 # the secrets directory and the per-site env file, and Compose project names
@@ -65,6 +68,8 @@ COMPOSE_FILE="${COMPOSE_FILE:-${K8S_REPO_ROOT}/docker-compose.yaml}"
 # Applied on top of the base file for a site whose SITE_SOURCE is `mounted`.
 DEV_COMPOSE_FILE="${DEV_COMPOSE_FILE:-${K8S_REPO_ROOT}/docker-compose.dev.yaml}"
 DATA_COMPOSE_FILE="${DATA_COMPOSE_FILE:-${K8S_REPO_ROOT}/docker-compose.data.yaml}"
+# One file per Magento line, naming every version that line runs.
+VERSIONS_DIR="${VERSIONS_DIR:-${K8S_REPO_ROOT}/versions}"
 
 # Kept as an override for anything that wants to point the whole lookup at one
 # file. Empty by default: the layered pair below is the normal case.
@@ -87,14 +92,14 @@ site_list() {
 # here and failed on a runner. The no-argument form is deliberate.
 # shellcheck disable=SC2120
 resolve_site() {
-    local named="${1:-}" want_mode="${2:-}"
+    local named="${1:-}" want_mode="${2:-}" want_line="${3:-}"
     if [[ -n "$named" ]]; then
         # An explicit switch. Every derived value is recomputed, and an
         # override left in the environment by the previous site is discarded
         # rather than inherited -- that inheritance is the whole bug.
         SITE="$named"
         unset SITE_ENV_FILE SITE_MODE COMPOSE_PROJECT DATA_PROJECT \
-              DATA_NETWORK SECRETS_DIR DATA_SECRETS_DIR
+              DATA_NETWORK SECRETS_DIR DATA_SECRETS_DIR MAGENTO_LINE
     else
         SITE="${SITE:-vanilla.test}"
     fi
@@ -175,6 +180,69 @@ resolve_site() {
 
     SECRETS_DIR="${SECRETS_DIR:-${SECRETS_ROOT}/${SITE_SLUG}}"
     DATA_SECRETS_DIR="${DATA_SECRETS_DIR:-${SECRETS_ROOT}/${DATA_PROJECT}}"
+
+    resolve_line "$want_line"
+}
+
+# --- which Magento line ------------------------------------------------------
+# MAGENTO_LINE picks the versions a site runs: PHP and Composer for its image,
+# and the tag of every service image. common.env names the default line and a
+# site's own env file may name another, with the same precedence as any other
+# key. Each line is one file under versions/.
+#
+# A SITE ON ANOTHER LINE MUST BE EXCLUSIVE. The shared data tier can run only
+# one MariaDB, and it runs the default line's; Magento 2.4.8's database
+# version check lists no MariaDB 12, so a 2.4.8 store cannot share the 2.4.9
+# tier. The refusal is here, where every command resolves the site, rather than
+# at the first command that happens to meet the database.
+#
+# The application image is tagged per line, so a second line's build cannot
+# replace the image every default-line site runs.
+resolve_line() {
+    local want_line="${1:-}"
+    DEFAULT_LINE="$(sed -n 's/^MAGENTO_LINE=//p' "$COMMON_ENV_FILE" | head -n1)"
+    [[ -n "$DEFAULT_LINE" ]] || die "MAGENTO_LINE is not set in ${COMMON_ENV_FILE}"
+
+    MAGENTO_LINE="${want_line:-${MAGENTO_LINE:-$(env_value_or MAGENTO_LINE "$DEFAULT_LINE")}}"
+    LINE_FILE="${VERSIONS_DIR}/magento-${MAGENTO_LINE}.env"
+    [[ -f "$LINE_FILE" ]] || die "MAGENTO_LINE=${MAGENTO_LINE} names no line: there is no ${LINE_FILE}.
+  The lines are: $(line_list | tr '\n' ' ')"
+
+    if [[ "$MAGENTO_LINE" != "$DEFAULT_LINE" && "$SITE_MODE" != "exclusive" ]]; then
+        die "${SITE} is on the ${MAGENTO_LINE} line, and only an exclusive site may leave the default line (${DEFAULT_LINE}).
+
+  The shared data tier runs the ${DEFAULT_LINE} line's MariaDB, and a store on
+  another line would share it. Make the site exclusive (SITE_MODE=exclusive in
+  ${SITE_ENV_FILE}, or MODE=exclusive when creating it), or put it back on the
+  ${DEFAULT_LINE} line."
+    fi
+
+    if [[ "$MAGENTO_LINE" == "$DEFAULT_LINE" ]]; then
+        LINE_IMAGE_TAG="$IMAGE_TAG"
+    else
+        LINE_IMAGE_TAG="${IMAGE_TAG}-${MAGENTO_LINE}"
+    fi
+}
+
+# Every line there is a versions file for.
+line_list() {
+    local f
+    for f in "${VERSIONS_DIR}"/magento-*.env; do
+        [[ -e "$f" ]] || continue
+        f="${f##*/magento-}"
+        printf '%s\n' "${f%.env}"
+    done
+}
+
+# Export every version this site's line pins, for Compose to interpolate and
+# for the image build. Read key by key rather than sourced, like every other
+# env file here.
+export_line_versions() {
+    local key val
+    while IFS='=' read -r key val; do
+        [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+        export "${key}=${val}"
+    done < "$LINE_FILE"
 }
 
 # Read one value for this site.
@@ -260,9 +328,11 @@ compose_env() {
     export DEV_UID DEV_GID
     # An empty SITE_IMAGE_TAG means the shared image, which is the whole point
     # of question 2 being answered "share now, vary later": a site diverges by
-    # setting this in its env file and nothing else changes.
-    APP_IMAGE_TAG="$(env_value_or SITE_IMAGE_TAG "$IMAGE_TAG")"
+    # setting this in its env file and nothing else changes. The shared image
+    # is the one for the site's Magento line.
+    APP_IMAGE_TAG="$(env_value_or SITE_IMAGE_TAG "$LINE_IMAGE_TAG")"
     export APP_IMAGE_TAG
+    export_line_versions
     local src
     src="$(env_value_or SITE_MAGENTO_SRC "")"
     [[ -n "$src" ]] && export MAGENTO_SRC="$src"

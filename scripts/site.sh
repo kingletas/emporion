@@ -6,7 +6,7 @@
 # Compose project running its own application tier. Everything else it shares:
 # the image, the Magento tree, and — in the default mode — one data tier.
 #
-#   scripts/site.sh new second.test [-m MODE] [-s SNAPSHOT] [-y] [-n]
+#   scripts/site.sh new second.test [-m MODE] [-l LINE -t TREE] [-s SNAPSHOT] [-y] [-n]
 #   scripts/site.sh list
 #   scripts/site.sh up|down|destroy second.test
 #   scripts/site.sh use second.test          give this site the background work
@@ -16,6 +16,12 @@
 #   -m   shared (default) or exclusive. Shared attaches to the one data tier;
 #        exclusive gives this site its own MariaDB, OpenSearch, RabbitMQ and
 #        Valkey pair, and costs 3.2 GiB instead of 1.5.
+#   -l   the Magento line, one of versions/magento-<line>.env (default: the
+#        MAGENTO_LINE in common.env). A line other than the default needs
+#        -m exclusive and -t.
+#   -t   this site's own Magento tree, written as SITE_MAGENTO_SRC (default:
+#        the shared MAGENTO_SRC). Required with a line other than the default,
+#        because the shared tree is the default line's.
 #   -s   seed from this snapshot          (default: sample-data-baseline)
 #        `-s none` installs from empty instead, which takes about 20 minutes
 #        against a restore's 49 seconds.
@@ -183,10 +189,12 @@ issue_certs() {
 cmd_new() {
     local host="${1:-}"; shift || true
     [[ -n "$host" ]] || die "which site? scripts/site.sh new second.test"
-    local mode=shared snapshot="$DEFAULT_SNAPSHOT" yes=0 dry=0
-    while getopts ":m:s:ynh" opt; do
+    local mode=shared line="" tree="" snapshot="$DEFAULT_SNAPSHOT" yes=0 dry=0
+    while getopts ":m:l:t:s:ynh" opt; do
         case "$opt" in
             m) mode="$OPTARG" ;;
+            l) line="$OPTARG" ;;
+            t) tree="$OPTARG" ;;
             s) snapshot="$OPTARG" ;;
             y) yes=1 ;;
             n) dry=1 ;;
@@ -203,8 +211,21 @@ cmd_new() {
     # Switch every derived path to the site being created rather than to
     # whatever SITE defaulted to when lib.sh was sourced. The mode is passed
     # in because this site has no config file yet to read it from, and setting
-    # SITE_MODE beforehand does not survive the switch.
-    resolve_site "$host" "$mode"
+    # SITE_MODE beforehand does not survive the switch. The line is passed for
+    # the same reason, and resolving it refuses a shared site off the default.
+    resolve_site "$host" "$mode" "$line"
+
+    if [[ -n "$tree" ]]; then
+        [[ -f "${tree}/bin/magento" ]] || die "${tree} has no bin/magento, so it is not a Magento tree"
+        tree="$(cd "$tree" && pwd)"
+    elif [[ "$MAGENTO_LINE" != "$DEFAULT_LINE" ]]; then
+        die "a site on the ${MAGENTO_LINE} line needs a Magento tree of that line.
+
+  The shared tree at MAGENTO_SRC is the ${DEFAULT_LINE} line's, and building it
+  with the ${MAGENTO_LINE} line's PHP would fail or, worse, run. Name the tree:
+
+    make new-site SITE=${host} MODE=exclusive LINE=${MAGENTO_LINE} SRC=../<tree>"
+    fi
 
     local seed_file="" seed_meta="" crypt_from=""
     if [[ "$snapshot" != "none" ]]; then
@@ -238,6 +259,8 @@ cmd_new() {
     Hostname          https://${host}/
     Mail              https://mail.${host}/
     Mode              ${mode}   (data tier: ${DATA_PROJECT})
+    Magento line      ${MAGENTO_LINE}   (versions/magento-${MAGENTO_LINE}.env)
+    Magento tree      ${tree:-${MAGENTO_SRC} (shared)}
     Compose project   ${COMPOSE_PROJECT}
     Database          ${SITE_SLUG//-/_}
     Cache prefix      ${SITE_SLUG//-/_}_   (underscores: Magento rejects a hyphen here)
@@ -245,7 +268,7 @@ cmd_new() {
     Queue vhost       /${SITE_SLUG}
     Valkey databases  cache ${cache_db}, page ${page_db}, session ${session_db}
     Seed              ${snapshot}$( [[ -n "$crypt_from" ]] && printf ', inheriting the crypt key from %s' "$(basename "$(dirname "$crypt_from")")" )
-    Image             magento-app:${IMAGE_TAG} (shared)
+    Image             magento-app:${LINE_IMAGE_TAG} (shared by every site on this line)
 
 PLAN
 
@@ -291,9 +314,12 @@ REDIS_SESSION_DB=${session_db}
 # --- read by the tooling, not by Magento ------------------------------------
 SITE_HOST=${host}
 SITE_MODE=${mode}
+# The Magento line, written out so a later change of the default in common.env
+# does not move this store. Another line needs SITE_MODE=exclusive.
+MAGENTO_LINE=${MAGENTO_LINE}
 SITE_SEED=${snapshot}
 SITE_IMAGE_TAG=
-SITE_MAGENTO_SRC=
+SITE_MAGENTO_SRC=${tree}
 SITE_CRYPT_ORIGIN=$( [[ -n "$crypt_from" ]] && basename "$(dirname "$crypt_from")" || echo own )
 ENV
     log "Wrote ${SITE_ENV_FILE}"
@@ -354,8 +380,8 @@ DONE
 # list
 # =============================================================================
 cmd_list() {
-    printf '\n  %-20s %-10s %-9s %-7s %-13s %s\n' \
-        "SITE" "MODE" "STATE" "WORK" "CRYPT KEY" "SEEDED FROM"
+    printf '\n  %-20s %-10s %-7s %-9s %-7s %-13s %s\n' \
+        "SITE" "MODE" "LINE" "STATE" "WORK" "CRYPT KEY" "SEEDED FROM"
     local host
     local found=0
     while IFS= read -r host; do
@@ -363,8 +389,11 @@ cmd_list() {
         found=1
         local slug="${host//./-}"
         local f="${CONFIG_ENV_DIR}/sites/${slug}.env"
-        local mode seed fp="—" state work
+        local mode line seed fp="—" state work
         mode="$(sed -n 's/^SITE_MODE=//p' "$f" | head -n1)"
+        # A file with no MAGENTO_LINE runs the default line.
+        line="$(sed -n 's/^MAGENTO_LINE=//p' "$f" | head -n1)"
+        line="${line:-$DEFAULT_LINE}"
         seed="$(sed -n 's/^SITE_SEED=//p' "$f" | head -n1)"
         [[ -s "${SECRETS_ROOT}/${slug}/magento-crypt-key" ]] \
             && fp="$(sha256sum "${SECRETS_ROOT}/${slug}/magento-crypt-key" | cut -c1-12)"
@@ -383,8 +412,8 @@ cmd_list() {
         else
             state="down"; work="—"
         fi
-        printf '  %-20s %-10s %-9s %-7s %-13s %s\n' \
-            "$host" "${mode:-?}" "$state" "$work" "$fp" "${seed:-?}"
+        printf '  %-20s %-10s %-7s %-9s %-7s %-13s %s\n' \
+            "$host" "${mode:-?}" "$line" "$state" "$work" "$fp" "${seed:-?}"
     done < <(site_list)
     (( found )) || printf '  (none)\n'
 

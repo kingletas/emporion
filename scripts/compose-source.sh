@@ -38,7 +38,8 @@ if [[ -z "$want" ]]; then
     printf '  %-24s %-10s %s\n' SITE SOURCE TREE
     while read -r site; do
         [[ -n "$site" ]] || continue
-        SITE="$site" SITE_SOURCE="" SITE_ENV_FILE="" MAGENTO_SRC="" resolve_site >/dev/null 2>&1 || true
+        SITE="$site" SITE_SOURCE="" SITE_MODE="" MAGENTO_LINE="" SITE_ENV_FILE="" MAGENTO_SRC="" \
+            resolve_site >/dev/null 2>&1 || true
         src="$(SITE_ENV_FILE="${CONFIG_ENV_DIR}/sites/${site//./-}.env" env_value_or SITE_SOURCE image)"
         tree="$(SITE_ENV_FILE="${CONFIG_ENV_DIR}/sites/${site//./-}.env" env_value_or SITE_MAGENTO_SRC "$MAGENTO_SRC")"
         printf '  %-24s %-10s %s\n' "$site" "$src" "${tree:-—}"

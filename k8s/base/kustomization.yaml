@@ -89,6 +89,24 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: false
 
+# Every image tag the manifests run. The service tags are the default Magento
+# line, versions/magento-2.4.9.env, which the manifests name without a tag;
+# k8s/components/ holds the other lines, and `make lint` fails when a tag here
+# disagrees with its versions file.
 images:
   - name: magento-app
     newTag: local
+  - name: mariadb
+    newTag: "12.3"
+  - name: valkey/valkey
+    newTag: "9.0-alpine"
+  - name: nginx
+    newTag: "1.30.5"
+  - name: varnish
+    newTag: "8.0.2"
+  - name: opensearchproject/opensearch
+    newTag: "3"
+  - name: rabbitmq
+    newTag: "4.3-management-alpine"
+  - name: mailhog/mailhog
+    newTag: "v1.0.1"

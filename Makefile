@@ -47,6 +47,10 @@ SCRIPTS    := ./scripts
 SITE       ?= vanilla.test
 MODE       ?= shared
 SEED       ?= sample-data-baseline
+# A Magento line other than the default, and the tree of that line; new-site
+# only. Empty means the default line and the shared tree.
+LINE       ?=
+SRC        ?=
 # YES=1 skips the confirmation prompts, for unattended use.
 YES        ?=
 OVERLAY    ?= dev
@@ -101,6 +105,7 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "    \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo
 	@echo "  Another site:  make new-site SITE=second.test [MODE=exclusive] [SEED=none]"
+	@echo "  Another line:  make new-site SITE=old.test MODE=exclusive LINE=2.4.8 SRC=../<2.4.8 tree>"
 	@echo "  Overlays:      make deploy OVERLAY=prod-shaped"
 	@echo "  One site works at a time:  make use SITE=second.test"
 	@echo
@@ -193,7 +198,7 @@ compose-cli: ## Compose: run bin/magento — make compose-cli ARGS="cache:flush"
 
 .PHONY: new-site
 new-site: ## Stand up another store — make new-site SITE=second.test [MODE=exclusive] [SEED=none]
-	@$(SCRIPTS)/site.sh new $(SITE) -m $(MODE) -s $(SEED) $(if $(YES),-y)
+	@$(SCRIPTS)/site.sh new $(SITE) -m $(MODE) -s $(SEED) $(if $(LINE),-l $(LINE)) $(if $(SRC),-t $(SRC)) $(if $(YES),-y)
 
 .PHONY: sites
 sites: ## Every site: mode, state, whether it holds the background work

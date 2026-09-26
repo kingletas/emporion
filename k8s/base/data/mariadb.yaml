@@ -65,7 +65,7 @@ spec:
         fsGroup: 999
       containers:
         - name: mariadb
-          image: mariadb:11.4
+          image: mariadb  # tag: images in k8s/base/kustomization.yaml
           ports:
             - name: mysql
               containerPort: 3306
