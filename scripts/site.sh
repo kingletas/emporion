@@ -34,6 +34,8 @@
 #   DEV_CERT_TOOL  a local wrapper around mkcert, if you have one
 #                  (default: dev-vhost-cert; plain mkcert is used if absent)
 #   ALLOW_TIGHT    set to 1 to create a site the memory check refuses
+#   ALLOW_MAJOR_UPGRADE  set to 1 to start MariaDB on a volume an older line
+#                  wrote, after taking a copy (see scripts/lib.sh)
 #
 # THIS IS A WORKSTATION, NOT A DATACENTER, and nothing below is capacity
 # planning. The point is standing a store up on demand and switching between
@@ -334,7 +336,7 @@ ENV
     fi
 
     log "Starting the data tier '${DATA_PROJECT}'"
-    dc_data up -d --wait
+    data_up
 
     provision_data
 
@@ -436,7 +438,7 @@ cmd_list() {
 cmd_up() {
     require_site "${1:-}"
     log "Starting the data tier '${DATA_PROJECT}'"
-    dc_data up -d --wait
+    data_up
     log "Starting ${SITE}"
     dc up -d
     log "Up. If the storefront 500s, the config changed and needs: make compose-install SITE=${SITE}"
@@ -554,7 +556,7 @@ PLAN
 # =============================================================================
 cmd_data_up() {
     log "Starting ${DATA_PROJECT}"
-    dc_data up -d --wait
+    data_up
 }
 
 cmd_data_down() {

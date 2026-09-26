@@ -39,6 +39,7 @@ These describe your machine. Set them in your shell, or accept the defaults.
 | `DEV_CERT_TOOL` | `dev-vhost-cert` | A local wrapper around mkcert, if you have one. Plain `mkcert` is used when it's absent |
 | `ALLOW_BOTH` | unset | Set to `1` to run both runtimes at once. There's no good reason to |
 | `ALLOW_TIGHT` | unset | Set to `1` to create a store the memory check refuses |
+| `ALLOW_MAJOR_UPGRADE` | unset | Set to `1` to start MariaDB on a volume an older line wrote, after taking the copies in [Moving MariaDB from 11.4 to 12.3](#moving-mariadb-from-114-to-123) |
 | `YES` | unset | Set to `1` to skip confirmation prompts, for unattended use |
 
 > [!WARNING]
@@ -109,12 +110,15 @@ This list and the Deployments in `k8s/base/jobs/consumers.yaml` must agree, and 
 
 | Line | PHP | Composer | MariaDB | Valkey | nginx | Varnish | OpenSearch | RabbitMQ |
 |---|---|---|---|---|---|---|---|---|
-| **2.4.9** (default) | 8.5 | 2.10.3 | 12.3 | 9.0 | 1.30.5 | 8.0.2 | 3 | 4.3 |
+| **2.4.9** (default) | 8.5 | 2.10.3 | 12.3 | 9.0 | 1.30.5 | 9.1.0, or 8.0.2 per store | 3 | 4.3 |
 | 2.4.8 | 8.4 | 2.9.3 | 11.4 | 8.0 | 1.28.0 | 7.5.0 | 3 | 4.3 |
 
-The 2.4.9 row follows Adobe's self-hosted system requirements for 2.4.9. The 2.4.8 row is the set this repository has run 2.4.8 stores on.
+The 2.4.9 row follows Adobe's self-hosted system requirements for 2.4.9, except Varnish: Adobe names Varnish 8, and the default here is 9.1.0, because the official `varnish` image has stopped rebuilding its 8.x tags and this repository's VCL uses nothing 9.0 or 9.1 changed. A store can still run 8.0.2; see [A store's own Varnish](#a-stores-own-varnish). The 2.4.8 row is the set this repository has run 2.4.8 stores on.
 
-**Each line is one file, `versions/magento-<line>.env`, and that file is the list.** `scripts/lib.sh` exports it for Compose and for the image build. Three other places repeat the default line's values because they cannot read an env file: the `${NAME:-default}` fallbacks in the Compose files, the `ARG` defaults in `build/Dockerfile`, and the `images:` tags in `k8s/base/kustomization.yaml`. A line other than the default also has a kustomize component, `k8s/components/magento-<line>/`, carrying its tags. **`make lint` renders the cluster on every line and fails when any copy disagrees with its versions file**, so a copy can drift only as far as the next lint.
+**Each line is one file, `versions/magento-<line>.env`, and that file is the list.** `scripts/lib.sh` exports it for Compose and for the image build. Three other places repeat the default line's values because they cannot read an env file: the `${NAME:-default}` fallbacks in the Compose files, the `ARG` defaults in `build/Dockerfile`, and the `images:` tags in `k8s/base/kustomization.yaml`. A line other than the default also has a kustomize component, `k8s/components/magento-<line>/`, carrying its tags. **`make lint` renders both cluster overlays on every line and fails when any copy disagrees with its versions file**, so a copy can drift only as far as the next lint.
+
+> [!NOTE] What the lint does not see
+> It checks each line's tags, not a store's. A store's own `VARNISH_VERSION` is applied by the overlay `make deploy` generates for that store, which the lint does not render; the lint only checks, through the Compose validation, that the value is an image tag.
 
 ### Which line a store runs
 
@@ -130,6 +134,18 @@ The 2.4.9 row follows Adobe's self-hosted system requirements for 2.4.9. The 2.4
 > The shared data tier can run only one MariaDB, and it runs the default line's. Magento's database version check lists no MariaDB 12 in 2.4.8, nor in 2.4.8-p5, so a 2.4.8 store cannot share a 2.4.9 tier. Every command refuses a shared store whose line is not the default, naming the file to change, rather than letting the first database call find out.
 
 **Both runtimes honour the one setting.** Compose reads the store's versions file. On the cluster, `make deploy` adds the line's component to the overlay it generates for the store, and points it at the store's application image.
+
+### A store's own Varnish
+
+**Varnish is the one version a store may choose apart from its line.** It holds no data and no other store shares it, so nothing else has to agree. On the 2.4.9 line the default is 9.1.0, and a store that has to run Adobe's Varnish 8 says so in its own file:
+
+```text
+VARNISH_VERSION=8.0.2
+```
+
+Compose then runs `varnish:8.0.2` for that store, and `make deploy` adds the tag to the overlay it generates for it. Only the store's own file is read for this key, never `common.env`, and a value that is not an image tag stops every command.
+
+**The official image no longer rebuilds 8.x.** Since 23 September 2026 its maintained tags are 9.1 and 9.0, so `8.0.2` still pulls but gets no further updates.
 
 **The application image is tagged per line.** Default-line stores share `magento-app:local`; a 2.4.8 store runs `magento-app:local-2.4.8`, so building it never replaces the image every other store runs. It is built from its own Magento tree, `SITE_MAGENTO_SRC`, because the shared tree is the default line's.
 
@@ -165,10 +181,22 @@ Its old database stays in the shared tier until you drop it.
 
 ### Moving MariaDB from 11.4 to 12.3
 
-> [!DANGER] The first start on the 2.4.9 line upgrades an existing database in place, and MariaDB cannot go back
-> The data tier sets `MARIADB_AUTO_UPGRADE`, so the first time a MariaDB 12.3 container starts on a volume an 11.4 server wrote, it upgrades the system tables in place. MariaDB does not support downgrading between major versions: once 12.3 has started on the volume, 11.4 is not guaranteed to read it. **Take both copies below before the first `make compose-up`, `make data-up` or `make new-site` on this version**, and before `make deploy` on an existing cluster.
+> [!DANGER] Starting 12.3 on an 11.4 volume upgrades it in place, and MariaDB cannot go back
+> The data tier sets `MARIADB_AUTO_UPGRADE`, so the first time a MariaDB 12.3 container starts on a volume an 11.4 server wrote, it upgrades the system tables in place. MariaDB does not support downgrading between major versions: once 12.3 has started on the volume, 11.4 is not guaranteed to read it.
 >
 > This procedure has not yet been rehearsed end to end.
+
+**Every start of the data tier refuses that upgrade until you say the copies exist.** Before `make compose-up`, `make data-up`, `make new-site` or `site.sh up` starts MariaDB, the guard in `scripts/lib.sh` reads the version the volume records, from its `mariadb_upgrade_info`, with a short-lived container of the new image that runs only `sh` and has no network. It then:
+
+| The volume records | What happens |
+|---|---|
+| nothing: no volume, or an empty one | starts |
+| the same major.minor line as the image | starts |
+| an older line, such as 11.4 under a 12.3 image | refuses, naming both versions and how to copy the volume, until `ALLOW_MAJOR_UPGRADE=1` |
+| a database with no `mariadb_upgrade_info` | refuses the same way, because the image treats that as needing an upgrade |
+| a newer line than the image | refuses, and the flag does not help: MariaDB does not support it |
+
+It asks nothing when the tier's `db` container already runs the target image, so an ordinary `up` costs nothing. `make deploy` makes the same check on the cluster, by asking the running MariaDB pod before it applies a new tag; a claim with no running pod to ask is refused as unknown. `scripts/test-mariadb-guard.sh`, run by `make lint`, proves the decisions and the reader without Docker. Whether a real volume carries `mariadb_upgrade_info` where the guard reads it can only be proven against one.
 
 Before the first start on 2.4.9, with the store still running on the version you are leaving:
 
@@ -200,7 +228,11 @@ Before the first start on 2.4.9, with the store still running on the version you
 
     The shared tier's volume is `magento-data_db-data`; an exclusive store's is `magento-data-<slug>_db-data`.
 
-Then start the store on 2.4.9 as usual. The upgrade runs once, at that start.
+Then start the store on 2.4.9 with the flag, once. The upgrade runs at that start:
+
+```bash
+ALLOW_MAJOR_UPGRADE=1 make compose-up
+```
 
 **The way back** puts the tier on 11.4 again, which means the default line goes back to 2.4.8, because the shared tier always runs the default line:
 
@@ -261,6 +293,7 @@ The rest of the file:
 | `MAGENTO_BASE_URL` | the store's base URL |
 | `DB_USER` | this store's database user |
 | `SITE_MODE` | `shared` or `exclusive` — which data tier this store attaches to |
+| `VARNISH_VERSION` | this store's own Varnish tag, when it is not its line's. See [A store's own Varnish](#a-stores-own-varnish) |
 | `MAGENTO_LINE` | the Magento line, when it is not the default. A line other than the default needs `SITE_MODE=exclusive`. See [The Magento line](#the-magento-line) |
 | `SITE_SOURCE` | `image` or `mounted` — where the application code comes from |
 | `SITE_SEED` | which snapshot this store was seeded from, or `none` |

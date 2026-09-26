@@ -16,6 +16,8 @@
 #   CLUSTER_NAME   kind cluster           (default: vanilla)
 #   WAIT_TIMEOUT   per-rollout timeout    (default: 600s)
 #   INSTALL_TIMEOUT  timeout for the install Job alone (default: 3600s)
+#   ALLOW_MAJOR_UPGRADE  set to 1 to roll MariaDB onto a claim an older line
+#                  wrote, after taking a snapshot
 #
 # The install Job is deleted and recreated rather than applied, because a Job's
 # pod template is immutable and a second `apply` over an existing one fails
@@ -69,9 +71,11 @@ DIR="${K8S_REPO_ROOT}/k8s/overlays/${OVERLAY}"
 # A site on a Magento line other than the default also gets that line's
 # component, which retags the service images, and its own application image
 # tag. The tag is set here rather than in the component because it also
-# depends on the overlay: the dev overlay runs the -dev build.
+# depends on the overlay: the dev overlay runs the -dev build. A store that
+# sets its own VARNISH_VERSION gets that tag here as well.
 [[ -f "$SITE_ENV_FILE" ]] || die "no site '${SITE}'. Existing sites: $(site_list | tr '\n' ' ')"
 LINE_COMPONENT=""
+STORE_VARNISH="$(store_varnish_version)"
 if [[ "$MAGENTO_LINE" != "$DEFAULT_LINE" ]]; then
     LINE_COMPONENT="${K8S_REPO_ROOT}/k8s/components/magento-${MAGENTO_LINE}"
     [[ -f "${LINE_COMPONENT}/kustomization.yaml" ]] \
@@ -79,7 +83,7 @@ if [[ "$MAGENTO_LINE" != "$DEFAULT_LINE" ]]; then
     APP_TAG="$LINE_IMAGE_TAG"
     [[ "$OVERLAY" == "dev" ]] && APP_TAG="${APP_TAG}-dev"
 fi
-if [[ "$SITE_SLUG" != "vanilla-test" || -n "$LINE_COMPONENT" ]]; then
+if [[ "$SITE_SLUG" != "vanilla-test" || -n "$LINE_COMPONENT" || -n "$STORE_VARNISH" ]]; then
     # A dry run leaves nothing behind, so it renders from a temporary directory
     # that is removed on exit. It has to be a SIBLING of the overlay it builds
     # on: kustomize rejects an absolute path in `resources:` outright --
@@ -133,11 +137,17 @@ KUSTOMIZE
 # The Magento ${MAGENTO_LINE} line, from MAGENTO_LINE in the site's env file.
 components:
   - ../../components/magento-${MAGENTO_LINE}
-
-images:
-  - name: magento-app
-    newTag: ${APP_TAG}
 KUSTOMIZE
+    fi
+    if [[ -n "$LINE_COMPONENT" || -n "$STORE_VARNISH" ]]; then
+        printf '\nimages:\n' >> "${GEN}/kustomization.yaml"
+        if [[ -n "$LINE_COMPONENT" ]]; then
+            printf '  - name: magento-app\n    newTag: "%s"\n' "$APP_TAG" >> "${GEN}/kustomization.yaml"
+        fi
+        # The store's own Varnish, from VARNISH_VERSION in its env file.
+        if [[ -n "$STORE_VARNISH" ]]; then
+            printf '  - name: varnish\n    newTag: "%s"\n' "$STORE_VARNISH" >> "${GEN}/kustomization.yaml"
+        fi
     fi
     DIR="$GEN"
     log "Serving ${SITE} on the Magento ${MAGENTO_LINE} line: generated ${GEN} over overlay '${OVERLAY}'"
@@ -188,6 +198,37 @@ PYEOF
 
 split_manifests "${tmp}/all.yaml" job    "${tmp}/job.yaml"
 split_manifests "${tmp}/all.yaml" notjob "${tmp}/rest.yaml"
+
+# THE SAME MARIADB GUARD AS COMPOSE. A newer MariaDB tag rolls the StatefulSet
+# onto its existing claim, and MARIADB_AUTO_UPGRADE upgrades that data in place.
+# The running pod is asked what its data records before the new tag is applied;
+# a claim with no running pod to ask counts as unknown, and no claim as new.
+guard_cluster_mariadb() {
+    local target current recorded="" claim="data-mariadb-0"
+    target="$(sed -n 's/^[[:space:]-]*image: mariadb:\([^[:space:]]*\).*/\1/p' "$1" | head -n1)"
+    [[ -n "$target" ]] || die "the rendered manifests name no mariadb image"
+    current="$(kc -n "$NAMESPACE" get statefulset mariadb \
+        -o jsonpath='{.spec.template.spec.containers[?(@.name=="mariadb")].image}' 2>/dev/null || true)"
+    [[ "$current" == "mariadb:${target}" ]] && return 0
+    if [[ -n "$current" ]] \
+        && recorded="$(kc -n "$NAMESPACE" exec statefulset/mariadb -c mariadb -- \
+                          sh -c "$MARIADB_RECORDED_SH" sh /var/lib/mysql 2>/dev/null)"; then
+        :
+    elif kc -n "$NAMESPACE" get pvc "$claim" >/dev/null 2>&1; then
+        recorded="?"
+    else
+        return 0
+    fi
+    if mariadb_upgrade_allowed "$recorded" "$target" "${ALLOW_MAJOR_UPGRADE:-}"; then
+        case "$(mariadb_upgrade_verdict "$recorded" "$target")" in
+            upgrade|unknown) warn "ALLOW_MAJOR_UPGRADE=1: rolling mariadb:${target} onto ${claim}, which records ${recorded}. It upgrades in place." ;;
+        esac
+        return 0
+    fi
+    mariadb_refusal "$(mariadb_upgrade_verdict "$recorded" "$target")" \
+        "claim ${NAMESPACE}/${claim}" "$recorded" "mariadb:${target}"
+}
+guard_cluster_mariadb "${tmp}/all.yaml"
 
 log "Applying workloads"
 kc apply -f "${tmp}/rest.yaml"

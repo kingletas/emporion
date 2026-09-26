@@ -7,8 +7,9 @@
 #
 # It renders both cluster overlays, validates both Compose files for EVERY
 # site rather than for one, checks that each site's config is complete and its
-# namespaces are unique, and shellchecks every script including the ones baked
-# into the image.
+# namespaces are unique, checks every Magento line's versions agree wherever
+# they are repeated, tests the MariaDB upgrade guard's logic, and shellchecks
+# every script including the ones baked into the image.
 #
 # IT PROVES NOTHING ABOUT AN ASSEMBLED APPLICATION. Valid YAML, a parseable
 # Compose file and a clean shellcheck are all true of a store that returns 500
@@ -92,31 +93,37 @@ then ok; else bad; fi
 # EVERY MAGENTO LINE'S VERSIONS, EVERYWHERE THEY ARE REPEATED. versions/ holds
 # one list per line; the Compose fallbacks, the Dockerfile's ARG defaults and
 # the kustomize image tags repeat it because neither kustomize nor Docker can
-# read an env file into an image tag. Rendering the cluster with each line's
-# component checks the tags that actually deploy, not the text that sets them.
+# read an env file into an image tag. Rendering both overlays on each line
+# checks the tags that actually deploy, not the text that sets them. A store's
+# own VARNISH_VERSION is outside this check: it lives in a site file, and only
+# deploy.sh's generated overlay applies it.
 step "magento lines agree"
 lines_tmp="$(mktemp -d)"
 trap 'rm -rf "$lines_tmp"' EXIT
 lines_rendered=1
-kubectl kustomize "${K8S_REPO_ROOT}/k8s/overlays/prod-shaped" > "${lines_tmp}/${DEFAULT_LINE}.yaml" \
-    || lines_rendered=0
+for o in dev prod-shaped; do
+    kubectl kustomize "${K8S_REPO_ROOT}/k8s/overlays/${o}" > "${lines_tmp}/${DEFAULT_LINE}__${o}.yaml" \
+        || lines_rendered=0
+done
 for comp in "${K8S_REPO_ROOT}"/k8s/components/magento-*/; do
     [[ -d "$comp" ]] || continue
     line="$(basename "$comp")"
     line="${line#magento-}"
-    # A sibling of the overlays, because kustomize will not take an absolute
-    # path in `resources:`; the name matches the gitignored pattern deploy.sh
-    # uses for its own dry runs.
-    gen="$(mktemp -d "${K8S_REPO_ROOT}/k8s/overlays/.site-XXXXXX")"
-    printf '%s\n' \
-        'apiVersion: kustomize.config.k8s.io/v1beta1' \
-        'kind: Kustomization' \
-        'resources:' \
-        '  - ../prod-shaped' \
-        'components:' \
-        "  - ../../components/magento-${line}" > "${gen}/kustomization.yaml"
-    kubectl kustomize "$gen" > "${lines_tmp}/${line}.yaml" || lines_rendered=0
-    rm -rf "$gen"
+    for o in dev prod-shaped; do
+        # A sibling of the overlays, because kustomize will not take an
+        # absolute path in `resources:`; the name matches the gitignored
+        # pattern deploy.sh uses for its own dry runs.
+        gen="$(mktemp -d "${K8S_REPO_ROOT}/k8s/overlays/.site-XXXXXX")"
+        printf '%s\n' \
+            'apiVersion: kustomize.config.k8s.io/v1beta1' \
+            'kind: Kustomization' \
+            'resources:' \
+            "  - ../${o}" \
+            'components:' \
+            "  - ../../components/magento-${line}" > "${gen}/kustomization.yaml"
+        kubectl kustomize "$gen" > "${lines_tmp}/${line}__${o}.yaml" || lines_rendered=0
+        rm -rf "$gen"
+    done
 done
 if [[ $lines_rendered -eq 1 ]] && python3 - "$K8S_REPO_ROOT" "$lines_tmp" "$DEFAULT_LINE" <<'PY'
 import re, sys, pathlib
@@ -161,7 +168,7 @@ for k, val in re.findall(r"^ARG (PHP_VERSION|COMPOSER_VERSION)=(.*)$",
         bad.append(f"build/Dockerfile: ARG {k}={val}, but the {default} line says {want.get(k)}")
 
 for r in sorted(rendered.glob("*.yaml")):
-    line = r.stem
+    line, overlay = r.stem.split("__")
     if line not in lines:
         bad.append(f"k8s/components/magento-{line} has no versions/magento-{line}.env")
         continue
@@ -172,11 +179,11 @@ for r in sorted(rendered.glob("*.yaml")):
             continue
         seen.add(name)
         if tag != lines[line][IMAGES[name]]:
-            bad.append(f"the cluster on the {line} line runs {image}, but the versions file says {lines[line][IMAGES[name]]}")
+            bad.append(f"the {overlay} overlay on the {line} line runs {image}, but the versions file says {lines[line][IMAGES[name]]}")
     for name in sorted(set(IMAGES) - seen):
-        bad.append(f"the cluster on the {line} line runs no {name} image")
+        bad.append(f"the {overlay} overlay on the {line} line runs no {name} image")
 for line in sorted(lines):
-    if not (rendered / f"{line}.yaml").exists():
+    if not (rendered / f"{line}__prod-shaped.yaml").exists():
         bad.append(f"the {line} line has no cluster component at k8s/components/magento-{line}")
 
 if bad:
@@ -186,6 +193,10 @@ if bad:
     sys.exit(1)
 PY
 then ok; else bad; fi
+
+# The MariaDB upgrade guard's decisions and its volume reader, without Docker.
+step "mariadb upgrade guard"
+"${HERE}/test-mariadb-guard.sh" && ok || bad
 
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then

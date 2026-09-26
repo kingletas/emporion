@@ -332,7 +332,7 @@ services:
   # =========================================================================
 
   varnish:
-    image: varnish:${VARNISH_VERSION:-8.0.2}
+    image: varnish:${VARNISH_VERSION:-9.1.0}
     # Same tuned parameters as the Deployment. Magento sends very large
     # response headers -- the X-Magento-Tags list on a category page -- and the
     # stock 8k limit truncates them into a 503.
@@ -376,8 +376,10 @@ services:
       # chain is what makes "healthy" here mean "the edge can serve" rather
       # than "the port is open".
       #
-      # python3 because the varnish image has no curl, no wget and no nc. The
-      # Host header is not optional: the backends select on it.
+      # bash's /dev/tcp, because bash is the one client every line's Varnish
+      # image carries: 7.5.0 has python3 and no curl, 8.0.2 and 9.1.0 have curl
+      # and no python3. The Host header is not optional: the backends select on
+      # it. A redirect counts as a failure, since only a 200 is accepted.
       #
       # IT ASKS FOR THE STOREFRONT, NOT health_check.php, and that is a
       # correction rather than a preference. health_check.php checks that
@@ -396,14 +398,12 @@ services:
       # scripts/deploy.sh uses for the cluster, for the same reason.
       test:
         - CMD
-        - python3
+        - bash
         - -c
-        - |
-          import sys, urllib.request
-          req = urllib.request.Request("http://localhost/",
-                                       headers={"Host": "${SITE_HOST}",
-                                                "X-Forwarded-Proto": "https"})
-          sys.exit(0 if urllib.request.urlopen(req, timeout=8).status == 200 else 1)
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/80 &&
+          printf 'GET / HTTP/1.0\r\nHost: %s\r\nX-Forwarded-Proto: https\r\n\r\n' '${SITE_HOST}' >&3 &&
+          head -n1 <&3 | grep -q ' 200 '
       interval: 10s
       timeout: 8s
       # 6, not 12. Verified by stopping the storefront backend with a cold

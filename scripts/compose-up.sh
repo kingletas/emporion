@@ -17,6 +17,8 @@
 #   COMPOSE_PROJECT   compose project name   (default: the site's slug)
 #   MAGENTO_SRC       Magento tree to build  (see scripts/lib.sh)
 #   ALLOW_BOTH        set to 1 to override the cluster guard
+#   ALLOW_MAJOR_UPGRADE  set to 1 to start MariaDB on a volume an older line
+#                     wrote, after taking a copy (see scripts/lib.sh)
 #
 # It regenerates the credential files first, so a fresh clone needs no manual
 # step before this works.
@@ -92,7 +94,7 @@ fi
 # would time out on every fresh stack and report a failure that is just the
 # ordering. compose-install.sh does that wait, after the install.
 log "Starting the data tier '${DATA_PROJECT}'"
-dc_data up -d --wait
+data_up
 
 # Idempotent, and run on every `up` rather than only at creation. A site whose
 # database was dropped, or whose data tier was recreated from empty, would

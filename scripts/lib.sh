@@ -236,13 +236,27 @@ line_list() {
 
 # Export every version this site's line pins, for Compose to interpolate and
 # for the image build. Read key by key rather than sourced, like every other
-# env file here.
+# env file here. A store's own VARNISH_VERSION then replaces the line's.
 export_line_versions() {
     local key val
     while IFS='=' read -r key val; do
         [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
         export "${key}=${val}"
     done < "$LINE_FILE"
+    val="$(store_varnish_version)" || exit 1
+    [[ -z "$val" ]] || export VARNISH_VERSION="$val"
+}
+
+# The Varnish tag this store's own env file sets, or nothing. It is the one
+# version a store may choose apart from its line, because the edge holds no
+# data and no other store shares it. Only the store's file is read, never
+# common.env, and the tag is checked because deploy.sh writes it into YAML.
+store_varnish_version() {
+    local v=""
+    [[ -f "$SITE_ENV_FILE" ]] && v="$(sed -n 's/^VARNISH_VERSION=//p' "$SITE_ENV_FILE" | head -n1)"
+    [[ -z "$v" || "$v" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+        || die "VARNISH_VERSION=${v} in ${SITE_ENV_FILE} is not an image tag"
+    printf '%s' "$v"
 }
 
 # Read one value for this site.
@@ -432,6 +446,118 @@ dc() {
 dc_data() {
     compose_env
     docker compose -p "$DATA_PROJECT" -f "$DATA_COMPOSE_FILE" "$@"
+}
+
+# --- the MariaDB major-upgrade guard -----------------------------------------
+# The data tier sets MARIADB_AUTO_UPGRADE, so a MariaDB image of a newer
+# major.minor line upgrades an existing volume in place on its first start, and
+# MariaDB does not support going back. These refuse that start until a copy has
+# been taken, and say how; ALLOW_MAJOR_UPGRADE=1 lets it through.
+#
+# The first three take strings and touch nothing, so scripts/test-mariadb-guard.sh
+# can prove them without Docker.
+
+# "major minor" from a MariaDB version or image tag: "11.4.13-MariaDB" and
+# "11.4-noble" both give "11 4". Fails on anything else, such as `latest`.
+mariadb_line_of() {
+    [[ "$1" =~ ^([0-9]+)\.([0-9]+)([.-]|$) ]] || return 1
+    printf '%s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+# What starting image TAG on a volume that recorded RECORDED would do, as one
+# word. RECORDED is empty for a new or empty volume, and `?` for a database
+# with no mariadb_upgrade_info, which the image treats as needing an upgrade.
+#   fresh  same  upgrade  downgrade  unknown
+mariadb_upgrade_verdict() {
+    local recorded="$1" tag="$2" old new om on nm nn
+    [[ -n "$recorded" ]] || { echo fresh; return 0; }
+    new="$(mariadb_line_of "$tag")" || { echo unknown; return 0; }
+    old="$(mariadb_line_of "$recorded")" || { echo unknown; return 0; }
+    read -r om on <<<"$old"
+    read -r nm nn <<<"$new"
+    if (( om == nm && on == nn )); then
+        echo same
+    elif (( om < nm || (om == nm && on < nn) )); then
+        echo upgrade
+    else
+        echo downgrade
+    fi
+}
+
+# Whether that start may go ahead. ALLOW, the third argument, admits an upgrade
+# or an unknown volume and never a downgrade, which MariaDB does not support.
+mariadb_upgrade_allowed() {
+    case "$(mariadb_upgrade_verdict "$1" "$2")" in
+        fresh|same)      return 0 ;;
+        upgrade|unknown) [[ "${3:-}" == "1" ]] ;;
+        *)               return 1 ;;
+    esac
+}
+
+# The shell a short-lived container runs against a data directory at $1 to
+# report what it records: nothing for a new or empty volume, `?` for a
+# database with no upgrade information, otherwise the recorded version.
+MARIADB_RECORDED_SH='d="$1"; if [ -d "$d/mysql" ]; then if [ -r "$d/mariadb_upgrade_info" ]; then head -n1 "$d/mariadb_upgrade_info"; else echo "?"; fi; fi'
+
+# Refuse to start this data tier's MariaDB on a volume a different line wrote,
+# naming both versions and how to take a copy first. Silent when the container
+# already runs the target image, when there is no volume, and when the lines
+# match. The volume is read by a container of the target image with no network,
+# which runs only `sh`; the same image is pulled by `up` anyway.
+guard_mariadb_upgrade() {
+    compose_env
+    local image="mariadb:${MARIADB_VERSION}" current vol recorded verdict
+    current="$(docker ps -a --filter "label=com.docker.compose.project=${DATA_PROJECT}" \
+                          --filter "label=com.docker.compose.service=db" --format '{{.Image}}' | head -n1)"
+    [[ "$current" == "$image" ]] && return 0
+    vol="$(docker volume ls -q --filter "label=com.docker.compose.project=${DATA_PROJECT}" \
+                               --filter "label=com.docker.compose.volume=db-data" | head -n1)"
+    [[ -n "$vol" ]] || return 0
+    recorded="$(docker run --rm --network none --entrypoint sh -v "${vol}:/datadir:ro" \
+                    "$image" -c "$MARIADB_RECORDED_SH" sh /datadir)" \
+        || die "could not read the MariaDB version recorded in volume ${vol}, so it will not start ${image} on it"
+    verdict="$(mariadb_upgrade_verdict "$recorded" "$MARIADB_VERSION")"
+    mariadb_upgrade_allowed "$recorded" "$MARIADB_VERSION" "${ALLOW_MAJOR_UPGRADE:-}" && {
+        [[ "$verdict" == upgrade || "$verdict" == unknown ]] \
+            && warn "ALLOW_MAJOR_UPGRADE=1: starting ${image} on ${vol}, which records ${recorded}. It upgrades in place."
+        return 0
+    }
+    mariadb_refusal "$verdict" "$vol" "$recorded" "$image"
+}
+
+# The refusal itself, shared by Compose and the cluster.
+mariadb_refusal() {
+    local verdict="$1" where="$2" recorded="$3" image="$4" old_tag
+    old_tag="$(mariadb_line_of "$recorded" | tr ' ' '.')" || old_tag="<the version that wrote it>"
+    case "$verdict" in
+        downgrade)
+            die "${where} was written by MariaDB ${recorded}, and this would start ${image} on it.
+
+  MariaDB does not support going back to an older line on the same data. Put
+  back the copy taken before the upgrade, or run this store on the line that
+  wrote the volume. See docs/configuration.md, \"Moving MariaDB from 11.4 to 12.3\"." ;;
+        unknown)
+            die "${where} holds a database whose MariaDB version cannot be read (${recorded:-nothing recorded}), and ${image} would upgrade it in place.
+
+  Take a copy first, then run again with ALLOW_MAJOR_UPGRADE=1. The steps are
+  in docs/configuration.md, \"Moving MariaDB from 11.4 to 12.3\"." ;;
+        *)
+            die "${where} was written by MariaDB ${recorded}, and ${image} would upgrade it in place to a newer line.
+
+  MariaDB does not support going back. Take a copy first: a snapshot of every
+  store on it (make snapshot SITE=<store>) and, on Compose, a copy of the
+  stopped volume made with the image that wrote it, mariadb:${old_tag}. The
+  steps and the way back are in docs/configuration.md, \"Moving MariaDB from
+  11.4 to 12.3\".
+
+  Then run the same command again with ALLOW_MAJOR_UPGRADE=1." ;;
+    esac
+}
+
+# Start the data tier, after the guard above.
+data_up() {
+    guard_mariadb_upgrade
+    dc_data up -d --wait
 }
 
 data_running() {

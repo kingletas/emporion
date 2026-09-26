@@ -103,7 +103,7 @@ images:
   - name: nginx
     newTag: "1.30.5"
   - name: varnish
-    newTag: "8.0.2"
+    newTag: "9.1.0"
   - name: opensearchproject/opensearch
     newTag: "3"
   - name: rabbitmq

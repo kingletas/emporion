@@ -93,7 +93,7 @@ An immutable image and a live-edited tree are directly opposed, and editing Mage
 
 ## One Magento line, both runtimes
 
-**A store's `MAGENTO_LINE` decides the same versions in both runtimes.** The default is 2.4.9: PHP 8.5, MariaDB 12.3, Valkey 9.0, nginx 1.30.5 and Varnish 8.0.2. A store may name 2.4.8 instead.
+**A store's `MAGENTO_LINE` decides the same versions in both runtimes.** The default is 2.4.9: PHP 8.5, MariaDB 12.3, Valkey 9.0, nginx 1.30.5 and Varnish 9.1.0. A store may name 2.4.8 instead, and on either line may set its own `VARNISH_VERSION`, such as 8.0.2.
 
 | | Compose | kind cluster |
 |---|---|---|
@@ -101,6 +101,6 @@ An immutable image and a live-edited tree are directly opposed, and editing Mage
 | How a store picks its line | its env file | the same file: `make deploy` adds the line's component to the overlay it generates |
 | PHP and Composer | build arguments from the versions file | the same, through `make image`, which builds for `SITE`'s line |
 
-**The versions file is the list, and the other places are checked copies of it.** Kustomize cannot set an image tag from an env file and Docker cannot read one into a Dockerfile, so the default line's values are repeated in the kustomization, the Compose fallbacks and the Dockerfile. `make lint` renders the cluster on each line and fails when any of them disagrees with its versions file. [The Magento line](configuration.md#the-magento-line) has the table, how to pin a store, and the MariaDB upgrade.
+**The versions file is the list, and the other places are checked copies of it.** Kustomize cannot set an image tag from an env file and Docker cannot read one into a Dockerfile, so the default line's values are repeated in the kustomization, the Compose fallbacks and the Dockerfile. `make lint` renders both overlays on each line and fails when any of them disagrees with its versions file. [The Magento line](configuration.md#the-magento-line) has the table, how to pin a store, and the MariaDB upgrade.
 
 ---
