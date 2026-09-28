@@ -164,7 +164,8 @@ issue_certs() {
 
     if command -v "$tool" >/dev/null 2>&1; then
         log "Issuing certificates for ${host} and mail.${host} with ${tool}"
-        "$tool" issue "$host" "mail.${host}"
+        mkdir -p "$CERTS_HOME"
+        CERTS_HOME="$CERTS_HOME" "$tool" issue "$host" "mail.${host}"
         return 0
     fi
 
