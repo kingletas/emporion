@@ -60,12 +60,21 @@ RUN set -eux; \
 # whole rule here: every dependency is expressed as a probe, and no init
 # container merely waits.
 
+# opcache is NOT in the docker-php-ext-install list below. Both php:8.4-fpm
+# and php:8.5-fpm already ship it built in and enabled (`php -m` lists "Zend
+# OPcache" on the bare image, before this Dockerfile runs); 99-magento.ini
+# below only sets its directives, never loads it. Asking docker-php-ext-install
+# to build it again fails outright on 8.5: PHP 8.5 dropped opcache's own
+# PHP_ARG_ENABLE from ext/opcache/config.m4, so the standalone phpize build
+# it runs produces an empty module list and "make install" fails with
+# "cp: cannot stat 'modules/*'". Found building this image for the first time
+# on PHP 8.5.
 RUN set -eux; \
     docker-php-source extract; \
     pecl install redis; \
     docker-php-ext-configure gd --with-freetype --with-jpeg; \
     docker-php-ext-install -j"$(nproc)" \
-        bcmath ftp gd intl opcache pcntl pdo pdo_mysql soap sockets xsl zip; \
+        bcmath ftp gd intl pcntl pdo pdo_mysql soap sockets xsl zip; \
     docker-php-ext-enable redis; \
     docker-php-source delete
 
@@ -179,13 +188,21 @@ USER app
 #     --build-context magento-src=${MAGENTO_SRC}
 COPY --from=magento-src --chown=app:app . /app/
 
+# Checked for vendor/autoload.php rather than the bare directory: a tree
+# cloned straight from source control (rather than laid down by `composer
+# create-project`, which is the only case this used to check for) carries a
+# tracked vendor/.htaccess placeholder, so vendor/ already exists and is
+# nearly empty. The bare-directory check took that as "already staged" and
+# skipped composer install outright, and every later step that needed the
+# autoloader failed with "Vendor autoload is not found." Found building the
+# 2.4.9 tree from a git checkout.
 RUN set -eux; \
     cd /app; \
-    if [ ! -d vendor ]; then \
-        echo "==> vendor/ absent — running composer install"; \
+    if [ ! -f vendor/autoload.php ]; then \
+        echo "==> vendor/autoload.php absent — running composer install"; \
         composer install --no-dev --no-interaction --prefer-dist --no-progress; \
     else \
-        echo "==> vendor/ present in the build context — using it as staged"; \
+        echo "==> vendor/autoload.php present in the build context — using it as staged"; \
     fi
 
 RUN set -eux; \
