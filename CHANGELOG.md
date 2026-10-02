@@ -24,7 +24,7 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 
 ### Fixed
 
-- **`make smoke`'s A5 printed twice the readiness probes the cluster has.** It searched the workloads' JSON text, which client-side `kubectl apply` repeats in each object's last-applied annotation, so 13 probes printed as 26. It now counts from each container's spec. The pass condition was never affected, only the number; `docs/examples.md` shows the corrected output.
+- **`make smoke`'s A5 printed twice the readiness probes the cluster has.** It searched the workloads' JSON text, which client-side `kubectl apply` repeats in each object's last-applied annotation, so 13 probes printed as 26. It now counts from each container's spec. The pass condition was never affected, only the number; `docs/examples.md` shows the corrected output. When A5 fails, its message now names the half that failed: init containers that only wait, or no readiness probes.
 - **Magento could not send mail at all.** Both runtimes ship a MailHog sink and nothing pointed Magento at it, so it fell back to its default `sendmail` transport — which the image does not have. Every message failed. The entrypoint now writes `system/smtp` into `env.php` alongside the base URL, defaulting to `mailhog:1025`, which is the service name in both runtimes.
 
   It stayed hidden because a store works fine until something tries to email. The first symptom is usually a fresh admin account that cannot complete two-factor setup, reporting only *"Failed to send the message. Please contact the administrator"*.
