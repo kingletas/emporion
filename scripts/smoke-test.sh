@@ -141,7 +141,12 @@ if want A5; then
     # criterion actually bans.
     waiters="$(kc -n "$NAMESPACE" get deploy,sts -o json 2>/dev/null \
         | grep -oE '"command":\[[^]]*(nc -z|wait-for|until nc|sleep [0-9]+;)[^]]*\]' | wc -l)"
-    probed="$(kc -n "$NAMESPACE" get deploy,sts -o json 2>/dev/null | grep -c 'readinessProbe')"
+    # Probes are counted from each container's own spec: client-side apply
+    # keeps a second copy of every object in its last-applied annotation, so
+    # a search of the JSON text finds each probe twice.
+    probed="$(kc -n "$NAMESPACE" get deploy,sts 2>/dev/null \
+        -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.readinessProbe}{"\n"}{end}' \
+        | grep -c .)"
     if [[ "$waiters" == "0" && "$probed" -gt 0 ]]; then
         result pass A5 "no waiting init containers; ${probed} readiness probes declared"
     else

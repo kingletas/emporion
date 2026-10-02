@@ -343,7 +343,7 @@ It reports every criterion rather than stopping at the first failure, because a 
 ```text
   ✓ A2   storefront home returns 200
   ✓ A4   value written before `delete pod` survived the replacement
-  ✓ A5   no waiting init containers; 26 readiness probes declared
+  ✓ A5   no waiting init containers; 13 readiness probes declared
   ✓ A8   6 cron Job(s) have fired; 6 consumer(s) running with nobody starting them
   -  A9   needs 2 php-fpm replicas to mean anything — run the prod-shaped overlay
   ✓ A11  second request reports X-Cache: HIT — Varnish is in the chain and caching
