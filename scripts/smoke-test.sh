@@ -150,7 +150,15 @@ if want A5; then
     if [[ "$waiters" == "0" && "$probed" -gt 0 ]]; then
         result pass A5 "no waiting init containers; ${probed} readiness probes declared"
     else
-        result fail A5 "${waiters} init container(s) look like they are just waiting"
+        # Either half can fail, or both, and the message names each one that did.
+        failed=""
+        if [[ "$waiters" != "0" ]]; then
+            failed="${waiters} init container(s) look like they are just waiting"
+        fi
+        if [[ "$probed" -eq 0 ]]; then
+            failed="${failed:+${failed}; }no readiness probes are declared"
+        fi
+        result fail A5 "$failed"
     fi
 fi
 
