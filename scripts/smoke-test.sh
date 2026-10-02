@@ -139,13 +139,30 @@ if want A5; then
     # The check is not "are there init containers" — there are two, and both
     # do work. It is "does any init container merely wait", which is what the
     # criterion actually bans.
-    waiters="$(kc -n "$NAMESPACE" get deploy,sts -o json 2>/dev/null \
-        | grep -oE '"command":\[[^]]*(nc -z|wait-for|until nc|sleep [0-9]+;)[^]]*\]' | wc -l)"
-    probed="$(kc -n "$NAMESPACE" get deploy,sts -o json 2>/dev/null | grep -c 'readinessProbe')"
+    # Each init container's command and arguments come from its own spec, one
+    # line apiece: the JSON text spreads a command over several lines, and its
+    # last-applied copy escapes every quote, so a search of it matches neither.
+    waiters="$(kc -n "$NAMESPACE" get deploy,sts 2>/dev/null \
+        -o jsonpath='{range .items[*].spec.template.spec.initContainers[*]}{.command} {.args}{"\n"}{end}' \
+        | grep -cE 'nc -z|wait-for|until nc|sleep [0-9]+;')"
+    # Probes are counted from each container's own spec: client-side apply
+    # keeps a second copy of every object in its last-applied annotation, so
+    # a search of the JSON text finds each probe twice.
+    probed="$(kc -n "$NAMESPACE" get deploy,sts 2>/dev/null \
+        -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.readinessProbe}{"\n"}{end}' \
+        | grep -c .)"
     if [[ "$waiters" == "0" && "$probed" -gt 0 ]]; then
         result pass A5 "no waiting init containers; ${probed} readiness probes declared"
     else
-        result fail A5 "${waiters} init container(s) look like they are just waiting"
+        # Either half can fail, or both, and the message names each one that did.
+        failed=""
+        if [[ "$waiters" != "0" ]]; then
+            failed="${waiters} init container(s) look like they are just waiting"
+        fi
+        if [[ "$probed" -eq 0 ]]; then
+            failed="${failed:+${failed}; }no readiness probes are declared"
+        fi
+        result fail A5 "$failed"
     fi
 fi
 
