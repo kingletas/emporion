@@ -98,11 +98,47 @@ Modules add cache types, so this list can fall behind. The installer checks it b
 
 Read on a first install only. **The admin password is not here** — it's generated into `secrets/` like every other credential.
 
-### `MAGENTO_CONSUMERS`
+### `MAGENTO_CONSUMERS`, and the one list it is made from
 
-The queue consumers to run. **Core Magento only, on purpose** — a queue belonging to one store's modules is not infrastructure, and adding one here would make this file specific to a single installation. Add site-specific consumers through the per-store file and an overlay.
+The queue consumers to run. **Don't edit this line.** It is written by `make consumers` from `k8s/base/config/consumers.list`, the one place a consumer is written by hand. The same command writes the Deployments in `k8s/base/jobs/consumers.yaml` and the consumer services in `docker-compose.yaml` and `docker-compose.dev.yaml`, and all four are committed.
 
-This list and the Deployments in `k8s/base/jobs/consumers.yaml` must agree, and the mismatch is invisible in both directions: a consumer that's not named never runs, and nothing reports it. `make verify-consumers` compares three sets — the list, the cluster Deployments and the Compose services.
+It used to be four hand-written places that had to agree, and the mismatch is invisible in every direction: a consumer that's not named never runs, and nothing reports it. `make check` now refuses any of the four that isn't what the list makes, and `make verify-consumers` still compares what the two runtimes would actually run: the list, the cluster Deployments and the Compose services.
+
+#### The six it ships with
+
+| Queue | What its consumer is for |
+|---|---|
+| `async.operations.all` | Bulk API operations. The heaviest of the six by a wide margin |
+| `product_action_attribute.update` | Mass attribute updates from the admin product grid |
+| `inventory.reservations.update` | MSI reservations. Latency here shows up as wrong salable quantities |
+| `inventory.reservations.cleanup` | Compacts completed reservations, which grow without bound if it never runs |
+| `media.gallery.synchronization` | Writes to `pub/media`, so it holds the shared media claim |
+| `codegeneratorProcessor` | Generates code at runtime. On an immutable image it should have nothing to do |
+
+**Core Magento only, on purpose**: a queue belonging to one store's modules is not infrastructure. **And not all of core's**: Magento declares more consumers than these, `exportProcessor`, `product_alert` and `sales.rule.update.coupon.usage` among them, and none of those runs here until its line is in the list. `bin/magento queue:consumers:list` on your store prints every consumer its code declares.
+
+#### Adding a consumer
+
+One line in `k8s/base/config/consumers.list`, then one command. For a store whose own module declares a queue called `acme.widget_sync`:
+
+```text
+acme.widget_sync   # Keeps the widget catalogue in step with the warehouse.
+```
+
+```bash
+make consumers          # writes the Deployment, both Compose services and MAGENTO_CONSUMERS
+make verify-consumers   # the four match the list, and both runtimes would run the same seven
+```
+
+The queue's name alone is a whole line. The Deployment is named from it, `consumer-acme-widget-sync`, restarts itself every 100 messages and asks for 192Mi of memory with a 384Mi limit. A line can say otherwise:
+
+```text
+acme.widget_sync  max=500  memory=256Mi/512Mi   # Keeps the widget catalogue in step with the warehouse.
+```
+
+`name=` and `compose=` set the Deployment's and the Compose service's names, for the two shipped consumers whose names were not made by the rule. **Don't rename a consumer that is running**: the cluster keeps the old Deployment consuming beside the new one until you delete it.
+
+**The list belongs to your copy of this repository, and every store that copy runs gets every consumer in it.** A consumer for one store among several is not supported: a store's env file can replace `MAGENTO_CONSUMERS`, but nothing gives that one store its own Deployment or Compose service, and the check reads the shared list.
 
 ## The Magento line
 

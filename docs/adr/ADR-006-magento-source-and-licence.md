@@ -28,7 +28,7 @@ A third fact is worth recording because it closed a problem rather than opening 
 
 **Nothing in `k8s/`, `build/` or `docker-compose.yaml` names any particular store's application**, and that survives the move as a property to preserve rather than a cleanup to perform:
 
-- The consumer list is **core Magento queues only**. Anything site-specific is added through the shared env file and an overlay, which is the correct layering regardless.
+- The consumer list is **core Magento queues only**. A store that needs a consumer of its own adds a line to `k8s/base/config/consumers.list` in its copy of the repository; nothing here names one.
 - `config/files/nginx/magento.conf` carries no multisite `MAGE_RUN_CODE` map and no store-specific rewrite table. Those are business routing, not infrastructure.
 - The Varnish VCL was written for this deployment rather than copied from one.
 - No credential, key or certificate is **committable** from this directory. `CERTS_HOME` defaults to `certs/` inside the repository and `secrets/` sits beside it; both are gitignored, and `make scan` asks git rather than trusting the paths — it failed once on a `certs/` pattern that didn't match a symlink.

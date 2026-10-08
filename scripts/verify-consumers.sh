@@ -44,6 +44,11 @@ while getopts ":o:h" opt; do
     esac
 done
 
+# First the cheap half, which needs neither runtime: the four files made from
+# the one list are still what the list makes. A consumer changed by hand in one
+# of them is refused here, by file, before anything is rendered.
+"${HERE}/make-consumers.sh" --check >/dev/null || die "the files made from the consumer list do not match it, above"
+
 need kubectl
 need docker
 DIR="${K8S_REPO_ROOT}/k8s/overlays/${OVERLAY}"

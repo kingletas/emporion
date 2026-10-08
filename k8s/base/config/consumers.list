@@ -1,0 +1,29 @@
+# The queue consumers this repository runs, one line each.
+#
+# This is the only place a consumer is written by hand. `make consumers` makes
+# the rest from it: the Deployments in k8s/base/jobs/consumers.yaml, the consumer
+# services in docker-compose.yaml and docker-compose.dev.yaml, and
+# MAGENTO_CONSUMERS in k8s/base/config/env/common.env. `make verify-consumers`
+# and `make check` refuse any of those that no longer match this file.
+#
+# A line is the queue's name, then any of the settings below, then `#` and what
+# the consumer is for. That sentence becomes the comment above its Deployment.
+#
+#   max=N              messages before the process restarts itself (default 100)
+#   memory=REQ/LIMIT   the Deployment's memory request and limit (default 192Mi/384Mi)
+#   name=NAME          the Deployment's name, where the one made from the queue's
+#                      name will not do. Never change the name of a consumer that
+#                      is running: the cluster would keep the old Deployment
+#                      consuming beside the new one.
+#   compose=NAME       the Compose service's name, where it differs from the Deployment's
+#
+# TO ADD ONE, add its line and run `make consumers`. The queue's name alone is
+# a whole line. Every store this copy of the repository runs gets the consumer,
+# so a queue that only one of several stores has does not belong here.
+
+async.operations.all             memory=384Mi/768Mi  compose=consumer-async-operations          # Bulk API operations. The heaviest consumer here by a wide margin.
+product_action_attribute.update  memory=256Mi/512Mi  compose=consumer-product-action-attribute  # Mass attribute updates from the admin product grid.
+inventory.reservations.update    max=500                                                        # MSI reservations. Latency here shows up as wrong salable quantities.
+inventory.reservations.cleanup   max=500                                                        # Compacts completed reservations; unbounded growth if it never runs.
+media.gallery.synchronization    memory=256Mi/512Mi                                             # Writes to pub/media, so it holds the shared claim from ADR-003 — the one consumer where the storage decision is visible.
+codegeneratorProcessor           name=consumer-codegenerator                                    # Generates code at runtime. On an immutable image it should have nothing to do; if it is busy, something is not in the image that should be.
