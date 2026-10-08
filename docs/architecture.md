@@ -70,7 +70,9 @@ So it's assembled at container start from the shared config and the generated cr
 make verify-consumers
 ```
 
-It compares **three** sets now — the declared list, the cluster Deployments, and the Compose services — and `deploy.sh` runs it before applying, because the failure is silent once it's running.
+It compares **three** sets — the declared list, the cluster Deployments, and the Compose services — and `deploy.sh` runs it before applying, because the failure is silent once it's running.
+
+**All three are made from one list**, `k8s/base/config/consumers.list`, by `make consumers`, so they can't be written to disagree, and `make check` refuses a made file that was edited by hand. [Adding a consumer](configuration.md#adding-a-consumer) is one line.
 
 ### What a second store actually cost
 

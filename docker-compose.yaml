@@ -133,9 +133,10 @@ x-app-volumes: &app-volumes
   # shared, so it is the one named volume here.
   - media:/app/pub/media
 
-# A consumer. Six of them differ only by queue name, and that name has to match
-# MAGENTO_CONSUMERS in the shared env file -- `make verify-consumers` is what
-# checks it, because nothing else will.
+# A consumer. They differ only by queue name and batch size, and the services
+# themselves are written further down by `make consumers` from
+# k8s/base/config/consumers.list, the same list MAGENTO_CONSUMERS and the
+# cluster's Deployments are made from.
 x-consumer: &consumer
   <<: [*app-image, *app-env, *app-hardening]
   volumes: *app-volumes
