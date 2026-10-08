@@ -1,5 +1,9 @@
 # Queue consumers, one Deployment each.
 #
+# MADE FROM k8s/base/config/consumers.list BY `make consumers`. Do not edit this
+# file: add or change a line in the list and run the command, and `make check`
+# refuses this file when the two disagree.
+#
 # Like the CronJobs, these have no Compose service to translate. Under Compose
 # a consumer is started by hand with `bin/magento queue:consumers:start`, or
 # by cron_consumers_runner in env.php — and the env.php block is commented out
@@ -8,21 +12,20 @@
 # runs, and nothing reports it.
 #
 # Making each one a Deployment is the change that fixes it. A consumer that
-# exits is restarted; a consumer that was never declared is a missing
-# Deployment, which is visible in `kubectl get deploy`; and a consumer that is
-# declared here but absent from MAGENTO_CONSUMERS in the ConfigMap is caught
-# by `make verify-consumers`, because that mismatch is the one shape of this
-# bug Kubernetes cannot see for itself.
+# exits is restarted, and a consumer that was never declared is a missing
+# Deployment, which is visible in `kubectl get deploy`. The list in the
+# ConfigMap, these Deployments and the Compose services are all made from the
+# one list, so they cannot be written to disagree; `make verify-consumers`
+# still compares what the two runtimes would actually run.
 #
 # --max-messages is set on every one. A long-lived PHP process consuming an
 # unbounded number of messages accumulates memory until the container limit
 # kills it, and a restart at a message boundary is free where an OOMKill
 # mid-message is not.
 #
-# THE LIST IS CORE MAGENTO ONLY, ON PURPOSE. Site-specific consumers are added
-# through the per-site env file and an overlay, not here. That is the right
-# layering — a queue belonging to one store's modules is not infrastructure —
-# and it keeps this file valid for any Magento installation.
+# THE LIST IS CORE MAGENTO ONLY, ON PURPOSE, as this repository ships it. A
+# store that needs a consumer of its own adds a line to the list in its copy
+# of the repository; docs/configuration.md shows one.
 ---
 # Bulk API operations. The heaviest consumer here by a wide margin.
 apiVersion: apps/v1

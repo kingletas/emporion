@@ -194,6 +194,14 @@ if bad:
 PY
 then ok; else bad; fi
 
+# Every file that names a consumer is made from one list. A hand edit to a made
+# file is caught here, on every commit, and not only when someone deploys.
+step "consumers match the list"
+"${HERE}/make-consumers.sh" --check >/dev/null && ok || bad
+
+step "consumer list tests"
+"${HERE}/test-consumers.sh" && ok || bad
+
 # The MariaDB upgrade guard's decisions and its volume reader, without Docker.
 step "mariadb upgrade guard"
 "${HERE}/test-mariadb-guard.sh" && ok || bad

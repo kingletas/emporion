@@ -90,6 +90,7 @@ services:
     <<: *dev-app
   magento-cron:
     <<: *dev-app
+  # >>> consumers: made from k8s/base/config/consumers.list by `make consumers`. Edit the list, not these lines.
   consumer-async-operations:
     <<: *dev-app
   consumer-product-action-attribute:
@@ -102,6 +103,7 @@ services:
     <<: *dev-app
   consumer-codegenerator:
     <<: *dev-app
+  # <<< consumers
   web:
     <<: *dev-web
   web-admin:

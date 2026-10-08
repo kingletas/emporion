@@ -309,8 +309,12 @@ private-info: ## Fail if anything in the tree names the machine it was written o
 scan: ## A6 — fail if anything credential-shaped is committable
 	@$(SCRIPTS)/scan-secrets.sh
 
+.PHONY: consumers
+consumers: ## Write the Deployments, the Compose services and MAGENTO_CONSUMERS from the one list
+	@$(SCRIPTS)/make-consumers.sh
+
 .PHONY: verify-consumers
-verify-consumers: ## Check MAGENTO_CONSUMERS and the consumer Deployments agree
+verify-consumers: ## Check the made files match the list, and that both runtimes would run the same consumers
 	@$(SCRIPTS)/verify-consumers.sh -o $(OVERLAY)
 
 .PHONY: verify-namespaces
