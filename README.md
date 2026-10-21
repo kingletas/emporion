@@ -7,7 +7,7 @@ A local runtime for a Magento 2 store, in two shapes: a Kubernetes cluster and a
 
 ## The problem
 
-A Magento environment is around twenty containers: PHP-FPM, nginx, Varnish, MariaDB, OpenSearch, RabbitMQ, two Redis-compatible caches, six queue consumers and a cron loop. Getting one running is a day. Getting a second one running beside it, for a different branch or a different client, usually means copying the whole thing and then discovering the two stores are sharing a search index.
+A Magento environment is around twenty containers: PHP-FPM, nginx, Varnish, MariaDB, OpenSearch, RabbitMQ, two Redis-compatible caches, eight queue consumers and a cron loop. Getting one running is a day. Getting a second one running beside it, for a different branch or a different client, usually means copying the whole thing and then discovering the two stores are sharing a search index.
 
 They share it because Magento's namespacing is spread across five unrelated settings, and **four of the five fail silently when they collide.** Two stores on one queue vhost consume each other's messages, and the only evidence is work that never happened.
 

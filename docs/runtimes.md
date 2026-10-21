@@ -21,7 +21,7 @@ A kind cluster and a Compose stack, deploying the same image from the same confi
 | Publishes a host port | no | 80 and 443, on loopback only |
 | Application code | in the image | in the image, or a `hostPath` under the `dev` overlay |
 | Scheduled work | a `cron:run` loop in a container | two `CronJob` objects, one per group |
-| Consumers | six services | six `Deployment` objects |
+| Consumers | eight services | eight `Deployment` objects |
 | Extra tooling needed | none | `kind`, `kubectl` |
 | **How many stores at once** | **as many as fit** — `make new-site` | one; there's no second port for a second host |
 | Good for | running the store, day to day | the orchestration questions — probes, claims, rollout, scaling |

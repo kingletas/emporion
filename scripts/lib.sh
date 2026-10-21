@@ -615,8 +615,8 @@ app_services() {
 # background work. Everything left out is a consumer or the cron loop.
 #
 # THIS IS THE BOUND THAT MATTERS, and it is not about idle memory. Per site the
-# declared ceilings are php-cron 4g + magento-cron 4g + six consumers at 1g --
-# 14 GiB for one site. Two sites reindexing at once overcommits this host
+# declared ceilings are php-cron 4g + magento-cron 4g + eight consumers at 1g:
+# 16 GiB for one site. Two sites reindexing at once overcommits this host
 # whatever the data tier is doing, so what is limited is how many sites do
 # background work, not how many exist.
 serving_services() {

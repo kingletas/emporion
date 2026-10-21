@@ -104,18 +104,22 @@ The queue consumers to run. **Don't edit this line.** It is written by `make con
 
 It used to be four hand-written places that had to agree, and the mismatch is invisible in every direction: a consumer that's not named never runs, and nothing reports it. `make check` now refuses any of the four that isn't what the list makes, and `make verify-consumers` still compares what the two runtimes would actually run: the list, the cluster Deployments and the Compose services.
 
-#### The six it ships with
+#### The eight it ships with
+
+**Why these eight: a store feeds each of them in normal use.** With `cron_run` false, a consumer not named in the list never runs and its messages wait with no error, so a queue belongs in the list once a store does the work that feeds it. The first six are fed by work in the admin or on the catalog; the last two by every order.
 
 | Queue | What its consumer is for |
 |---|---|
-| `async.operations.all` | Bulk API operations. The heaviest of the six by a wide margin |
+| `async.operations.all` | Bulk and asynchronous REST API calls. The heaviest of the first six by a wide margin |
 | `product_action_attribute.update` | Mass attribute updates from the admin product grid |
-| `inventory.reservations.update` | MSI reservations. Latency here shows up as wrong salable quantities |
-| `inventory.reservations.cleanup` | Compacts completed reservations, which grow without bound if it never runs |
-| `media.gallery.synchronization` | Writes to `pub/media`, so it holds the shared media claim |
-| `codegeneratorProcessor` | Generates code at runtime. On an immutable image it should have nothing to do |
+| `inventory.reservations.update` | Moves a product's MSI reservations to its new SKU when the SKU is changed |
+| `inventory.reservations.cleanup` | Deletes the MSI reservations of products that were deleted, or removed by an import |
+| `media.gallery.synchronization` | Records the files under `pub/media` in the media gallery's tables, read through the shared media claim |
+| `codegeneratorProcessor` | Generates coupon codes in bulk for a cart price rule, from the admin |
+| `inventory.reservations.updateSalabilityStatus` | After an order's reservations, refreshes whether each product is still salable |
+| `sales.rule.update.coupon.usage` | Counts a cart price rule's uses after an order; a coupon's and a customer's own counts are kept without it |
 
-**Core Magento only, on purpose**: a queue belonging to one store's modules is not infrastructure. **And not all of core's**: Magento declares more consumers than these, `exportProcessor`, `product_alert` and `sales.rule.update.coupon.usage` among them, and none of those runs here until its line is in the list. `bin/magento queue:consumers:list` on your store prints every consumer its code declares.
+**Core Magento only, on purpose**: a queue belonging to one store's modules is not infrastructure. **And not all of core's**: Magento declares more consumers than these, `exportProcessor` and `product_alert` among them, and none of the others runs here until its line is in the list. `bin/magento queue:consumers:list` on your store prints every consumer its code declares.
 
 #### Adding a consumer
 
@@ -127,7 +131,7 @@ acme.widget_sync   # Keeps the widget catalogue in step with the warehouse.
 
 ```bash
 make consumers          # writes the Deployment, both Compose services and MAGENTO_CONSUMERS
-make verify-consumers   # the four match the list, and both runtimes would run the same seven
+make verify-consumers   # the four match the list, and both runtimes would run the same nine
 ```
 
 The queue's name alone is a whole line. The Deployment is named from it, `consumer-acme-widget-sync`, restarts itself every 100 messages and asks for 192Mi of memory with a 384Mi limit. A line can say otherwise:

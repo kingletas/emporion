@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# make-consumers.sh — write everything that names a queue consumer from the
+# make-consumers.sh: write everything that names a queue consumer from the
 # one list, k8s/base/config/consumers.list.
 #
 # A consumer used to be written by hand in four places that had to agree: the
@@ -65,7 +65,7 @@ HEADER = """# Queue consumers, one Deployment each.
 #
 # Like the CronJobs, these have no Compose service to translate. Under Compose
 # a consumer is started by hand with `bin/magento queue:consumers:start`, or
-# by cron_consumers_runner in env.php — and the env.php block is commented out
+# by cron_consumers_runner in env.php, and the env.php block is commented out
 # in this environment, so in practice nothing consumes anything until someone
 # notices. That is the silent failure: a consumer that is not named never
 # runs, and nothing reports it.
@@ -134,7 +134,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
