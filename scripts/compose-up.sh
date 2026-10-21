@@ -74,7 +74,7 @@ log "Generating credentials"
 
 if [[ $BUILD -eq 1 ]]; then
     log "Building the application image from ${MAGENTO_SRC}"
-    dc build
+    dc build --pull
 fi
 
 # TWO STEPS, TWO PROJECTS, and the split is the same one scripts/deploy.sh

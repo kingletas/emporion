@@ -4,6 +4,11 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Security
+
+- **Every image build asks Docker Hub for the newest PHP and Composer base of its line.** `scripts/build-image.sh` and `make compose-build` pass `--pull`. Before, a build used whichever `php:8.5-fpm` the machine had pulled last, so a PHP security release reached the image only once someone pulled the base by hand. A build now needs the network.
+- **Session upload progress is off** in `99-magento.ini`. Magento never reads it, PHP leaves it on, and PHP's security advisory GHSA-6wmf-4rv5-p3rp showed a use-after-free reached through it under FPM. The advisory recommends it off even on a fixed PHP.
+
 ### Added
 
 - **A queue consumer is written once, in `k8s/base/config/consumers.list`, and `make consumers` writes everything else that names it**: its Deployment, its service in both Compose files and `MAGENTO_CONSUMERS`. Adding a consumer is one line, the queue's name, and that command; `docs/configuration.md` shows it. It used to be four hand-written places, and the dev Compose file was a fourth that no check read.
