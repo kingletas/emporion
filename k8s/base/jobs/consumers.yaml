@@ -27,7 +27,7 @@
 # store that needs a consumer of its own adds a line to the list in its copy
 # of the repository; docs/configuration.md shows one.
 ---
-# Bulk API operations. The heaviest consumer here by a wide margin.
+# Bulk and asynchronous REST API calls. The heaviest consumer here by a wide margin.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -179,7 +179,7 @@ spec:
           persistentVolumeClaim:
             claimName: magento-media
 ---
-# MSI reservations. Latency here shows up as wrong salable quantities.
+# Moves a product's MSI reservations to its new SKU when the SKU is changed.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -255,7 +255,7 @@ spec:
           persistentVolumeClaim:
             claimName: magento-media
 ---
-# Compacts completed reservations; unbounded growth if it never runs.
+# Deletes the MSI reservations of products that were deleted, or removed by an import.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -331,7 +331,7 @@ spec:
           persistentVolumeClaim:
             claimName: magento-media
 ---
-# Writes to pub/media, so it holds the shared claim from ADR-003 — the one consumer where the storage decision is visible.
+# Records the files under pub/media in the media gallery's tables, read through the shared claim from ADR-003.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -407,7 +407,7 @@ spec:
           persistentVolumeClaim:
             claimName: magento-media
 ---
-# Generates code at runtime. On an immutable image it should have nothing to do; if it is busy, something is not in the image that should be.
+# Generates coupon codes in bulk for a cart price rule, from the admin.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -106,16 +106,18 @@ It used to be four hand-written places that had to agree, and the mismatch is in
 
 #### The six it ships with
 
+**Why these six: each is fed by work done in the admin or on the catalog.** With `cron_run` false, a consumer not named in the list never runs and its messages wait with no error, so a queue belongs in the list once a store does the work that feeds it.
+
 | Queue | What its consumer is for |
 |---|---|
-| `async.operations.all` | Bulk API operations. The heaviest of the six by a wide margin |
+| `async.operations.all` | Bulk and asynchronous REST API calls. The heaviest of the six by a wide margin |
 | `product_action_attribute.update` | Mass attribute updates from the admin product grid |
-| `inventory.reservations.update` | MSI reservations. Latency here shows up as wrong salable quantities |
-| `inventory.reservations.cleanup` | Compacts completed reservations, which grow without bound if it never runs |
-| `media.gallery.synchronization` | Writes to `pub/media`, so it holds the shared media claim |
-| `codegeneratorProcessor` | Generates code at runtime. On an immutable image it should have nothing to do |
+| `inventory.reservations.update` | Moves a product's MSI reservations to its new SKU when the SKU is changed |
+| `inventory.reservations.cleanup` | Deletes the MSI reservations of products that were deleted, or removed by an import |
+| `media.gallery.synchronization` | Records the files under `pub/media` in the media gallery's tables, read through the shared media claim |
+| `codegeneratorProcessor` | Generates coupon codes in bulk for a cart price rule, from the admin |
 
-**Core Magento only, on purpose**: a queue belonging to one store's modules is not infrastructure. **And not all of core's**: Magento declares more consumers than these, `exportProcessor`, `product_alert` and `sales.rule.update.coupon.usage` among them, and none of those runs here until its line is in the list. `bin/magento queue:consumers:list` on your store prints every consumer its code declares.
+**Core Magento only, on purpose**: a queue belonging to one store's modules is not infrastructure. **And not all of core's**: Magento declares more consumers than these, and none of the others runs here until its line is in the list. **Two are fed by placing an order:** `inventory.reservations.updateSalabilityStatus`, which refreshes whether a product is salable after an order's reservations, and `sales.rule.update.coupon.usage`, which counts a cart price rule's uses (a coupon's and a customer's own counts are kept without it). `exportProcessor` and `product_alert` are two more. `bin/magento queue:consumers:list` on your store prints every consumer its code declares.
 
 #### Adding a consumer
 
