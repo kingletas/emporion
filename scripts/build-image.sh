@@ -73,6 +73,9 @@ esac
 args=(
     docker build
     --progress=plain
+    # Re-resolve the PHP and Composer base tags, so a PHP security release is in
+    # the next build rather than whenever this machine last pulled them.
+    --pull
     --target "$TARGET"
     --tag "$TAG"
     --build-arg "COMPILE_EXCLUDES=${COMPILE_EXCLUDES}"
