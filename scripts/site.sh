@@ -52,8 +52,8 @@
 #   shared, one parked         3.82 GiB
 #
 # IDLE IS NOT THE RISK, AND THIS IS THE PART A MEMORY TABLE HIDES. Per site the
-# declared ceilings are php-cron 4g + magento-cron 4g + six consumers at 1g:
-# 14 GiB for ONE site. A single store can already overcommit this laptop, so
+# declared ceilings are php-cron 4g + magento-cron 4g + eight consumers at 1g:
+# 16 GiB for ONE site. A single store can already overcommit this laptop, so
 # what has to be bounded is how many sites do background work, not how many
 # exist. `use` and `park` are that bound — every site serves, one site works.
 #
@@ -405,7 +405,7 @@ cmd_list() {
             # Working means the consumers are running, which is the thing that
             # is bounded. Checked against what docker reports rather than
             # against a flag in a file, so it cannot claim a site is parked
-            # while six consumers are running.
+            # while its consumers are running.
             if [[ -n "$(docker ps -q --filter "label=com.docker.compose.project=${slug}" \
                                       --filter "name=${slug}-consumer" 2>/dev/null)" ]]; then
                 work="yes"

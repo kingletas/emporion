@@ -9,6 +9,9 @@
 #   app tier    php x3 456, web x3 58, varnish 99, cron 0.6            0.60 GiB
 #   consumers   six, at ~145 MiB each                                  0.87 GiB
 #
+# Measured with six consumers. Eight run now, and at the same ~145 MiB each the
+# two added would come to about 0.28 GiB more; that is arithmetic, not measured.
+#
 # So a second site sharing this tier costs 1.46 GiB rather than 3.22, and
 # 0.60 GiB once parked. Two full stacks is 6.44 GiB idle against ~10 GiB
 # available on this host, which is the shape that produced a load average of

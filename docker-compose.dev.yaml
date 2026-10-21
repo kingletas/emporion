@@ -103,6 +103,10 @@ services:
     <<: *dev-app
   consumer-codegenerator:
     <<: *dev-app
+  consumer-inventory-salability-status:
+    <<: *dev-app
+  consumer-sales-rule-update-coupon-usage:
+    <<: *dev-app
   # <<< consumers
   web:
     <<: *dev-web

@@ -56,7 +56,7 @@ One installed store, idle, with sample data loaded, measured with `docker stats`
 **Read the first row as the intended state.** A second store is something you stand up when you need one and destroy when you're done, and the rows below it are what that costs while it's there.
 
 > [!warning] Idle is not the risk, and a memory table hides that
-> Per site the declared ceilings are `php-cron` 4g + `magento-cron` 4g + six consumers at 1g — **14 GiB of ceiling for one store**. A single site can already overcommit this laptop. So what has to be bounded is **how many sites do background work, not how many exist**, and neither the table above nor any idle measurement licenses concurrency. Running the cluster beside a Compose stack once took this host to a load average of 300.
+> Per site the declared ceilings are `php-cron` 4g + `magento-cron` 4g + eight consumers at 1g: **16 GiB of ceiling for one store**. A single site can already overcommit this laptop. So what has to be bounded is **how many sites do background work, not how many exist**, and neither the table above nor any idle measurement licenses concurrency. Running the cluster beside a Compose stack once took this host to a load average of 300.
 >
 > **`use` and `park` are that bound.** Every site serves; one site holds the consumers and the cron loop.
 >

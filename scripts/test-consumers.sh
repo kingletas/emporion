@@ -64,8 +64,8 @@ check "it has a Compose service" yes "$(holds docker-compose.yaml '^  consumer-a
 check "running the same queue" yes "$(holds docker-compose.yaml '"queue:consumers:start", "acme.widget_sync", "--max-messages=100"\]$')"
 check "it has its entry in the dev Compose file" yes "$(holds docker-compose.dev.yaml '^  consumer-acme-widget-sync:$')"
 check "and Magento is told about it" yes "$(holds k8s/base/config/env/common.env '^MAGENTO_CONSUMERS=.* acme\.widget_sync$')"
-check "seven Deployments now" 7 "$(grep -c '^kind: Deployment$' "$work/repo/k8s/base/jobs/consumers.yaml")"
-check "the six shipped ones are still there" 6 "$(grep -cE '^  name: consumer-(async-operations-all|product-action-attribute-update|inventory-reservations-update|inventory-reservations-cleanup|media-gallery-synchronization|codegenerator)$' "$work/repo/k8s/base/jobs/consumers.yaml")"
+check "nine Deployments now" 9 "$(grep -c '^kind: Deployment$' "$work/repo/k8s/base/jobs/consumers.yaml")"
+check "the eight shipped ones are still there" 8 "$(grep -cE '^  name: consumer-(async-operations-all|product-action-attribute-update|inventory-reservations-update|inventory-reservations-cleanup|media-gallery-synchronization|codegenerator|inventory-salability-status|sales-rule-update-coupon-usage)$' "$work/repo/k8s/base/jobs/consumers.yaml")"
 check "after making, the files match the list again" 0 "$(make_consumers --check >/dev/null; echo $?)"
 
 # The settings a line can carry.

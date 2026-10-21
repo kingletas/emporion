@@ -11,7 +11,7 @@
 # its own project, and this one joins it over the `data` network at the bottom.
 # That is what makes a second store cost 1.46 GiB instead of 3.22 — the
 # measurements are in that file's header. Everything here is per site: three
-# PHP pools, three nginx pools, Varnish, the cron loop, six consumers, a mail
+# PHP pools, three nginx pools, Varnish, the cron loop, eight consumers, a mail
 # sink, and the two volumes that hold this site's media and static content.
 #
 # NOTHING IN THIS FILE NAMES A SITE. The project name, the hostname, the config
@@ -520,6 +520,14 @@ services:
   consumer-codegenerator:
     <<: *consumer
     command: ["php", "bin/magento", "queue:consumers:start", "codegeneratorProcessor", "--max-messages=100"]
+
+  consumer-inventory-salability-status:
+    <<: *consumer
+    command: ["php", "bin/magento", "queue:consumers:start", "inventory.reservations.updateSalabilityStatus", "--max-messages=100"]
+
+  consumer-sales-rule-update-coupon-usage:
+    <<: *consumer
+    command: ["php", "bin/magento", "queue:consumers:start", "sales.rule.update.coupon.usage", "--max-messages=100"]
   # <<< consumers
 
 networks:

@@ -6,7 +6,7 @@
 #
 # Like the CronJobs, these have no Compose service to translate. Under Compose
 # a consumer is started by hand with `bin/magento queue:consumers:start`, or
-# by cron_consumers_runner in env.php — and the env.php block is commented out
+# by cron_consumers_runner in env.php, and the env.php block is commented out
 # in this environment, so in practice nothing consumes anything until someone
 # notices. That is the silent failure: a consumer that is not named never
 # runs, and nothing reports it.
@@ -76,7 +76,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
@@ -152,7 +152,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
@@ -228,7 +228,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
@@ -304,7 +304,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
@@ -380,7 +380,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
@@ -456,7 +456,7 @@ spec:
               mountPath: /app/pub/media
           # There is no probe endpoint for a queue consumer, and inventing an
           # HTTP one would be a fiction. What can be checked honestly is that
-          # the PHP process for this specific queue is alive — a consumer that
+          # the PHP process for this specific queue is alive. A consumer that
           # has died leaving the container running is the failure mode that
           # matters, and a bare restartPolicy would not catch it.
           livenessProbe:
@@ -465,6 +465,158 @@ spec:
                 - sh
                 - -c
                 - "pgrep -f 'queue:consumers:start codegeneratorProcessor' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# After an order's reservations, refreshes whether each product is still salable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-inventory-salability-status
+  labels:
+    app.kubernetes.io/name: consumer-inventory-salability-status
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "inventory.reservations.updateSalabilityStatus"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-inventory-salability-status
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-inventory-salability-status
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "inventory.reservations.updateSalabilityStatus"
+            - "--max-messages=100"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive. A consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start inventory.reservations.updateSalabilityStatus' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: var
+          emptyDir: {}
+        - name: env-php
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: magento-media
+---
+# Counts a cart price rule's uses after an order; coupon and customer counts are kept without it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-sales-rule-update-coupon-usage
+  labels:
+    app.kubernetes.io/name: consumer-sales-rule-update-coupon-usage
+    vanilla.dev/tier: consumer
+    vanilla.dev/consumer: "sales.rule.update.coupon.usage"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumer-sales-rule-update-coupon-usage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consumer-sales-rule-update-coupon-usage
+        vanilla.dev/tier: consumer
+    spec:
+      # A consumer mid-message should be allowed to finish it. Magento's
+      # consumer catches SIGTERM and stops at the next message boundary.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: consumer
+          image: magento-app:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - "php"
+            - "bin/magento"
+            - "queue:consumers:start"
+            - "sales.rule.update.coupon.usage"
+            - "--max-messages=100"
+          envFrom:
+            - configMapRef:
+                name: vanilla-env
+            - secretRef:
+                name: vanilla-app
+          volumeMounts:
+            - name: var
+              mountPath: /app/var
+            - name: env-php
+              mountPath: /etc/magento
+            - name: media
+              mountPath: /app/pub/media
+          # There is no probe endpoint for a queue consumer, and inventing an
+          # HTTP one would be a fiction. What can be checked honestly is that
+          # the PHP process for this specific queue is alive. A consumer that
+          # has died leaving the container running is the failure mode that
+          # matters, and a bare restartPolicy would not catch it.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'queue:consumers:start sales.rule.update.coupon.usage' > /dev/null"
             initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 3

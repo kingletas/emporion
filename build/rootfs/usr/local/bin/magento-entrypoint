@@ -201,7 +201,7 @@ ${cache_types_php}    ],
          *
          * At 0 it returns immediately when there is nothing to read, and every
          * consumer here is a long-running workload with a restart policy -- so
-         * an idle store restart-loops six PHP bootstraps every few seconds,
+         * an idle store restart-loops eight PHP bootstraps every few seconds,
          * forever. Measured at 16 restarts in seven minutes on a store with no
          * traffic at all. Nothing errors; it just burns CPU and fills the logs
          * with something that looks like activity.

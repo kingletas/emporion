@@ -17,13 +17,13 @@
 #                      consuming beside the new one.
 #   compose=NAME       the Compose service's name, where it differs from the Deployment's
 #
-# WHY THESE SIX. Each is fed by work done in the admin or on the catalog: a bulk
-# API call, a mass attribute update, a product's SKU changed, a product deleted
-# or imported, the media gallery's sync, and coupon codes generated in bulk.
-# With cron_run false a consumer not named here never runs, and its messages
-# wait with no error, so a queue belongs here once a store does the work that
-# feeds it. Magento declares more than these; docs/configuration.md names the
-# ones a store feeds by taking orders.
+# WHY THESE EIGHT. With cron_run false a consumer not named here never runs, and
+# its messages wait with no error, so a queue belongs here once a store does the
+# work that feeds it. The first six are fed by work in the admin or on the
+# catalog: a bulk API call, a mass attribute update, a product's SKU changed, a
+# product deleted or imported, the media gallery's sync, and coupon codes
+# generated in bulk. The last two are fed by every order. Magento declares more
+# than these; docs/configuration.md says how to see them all.
 #
 # TO ADD ONE, add its line and run `make consumers`. The queue's name alone is
 # a whole line. Every store this copy of the repository runs gets the consumer,
@@ -35,3 +35,5 @@ inventory.reservations.update    max=500                                        
 inventory.reservations.cleanup   max=500                                                        # Deletes the MSI reservations of products that were deleted, or removed by an import.
 media.gallery.synchronization    memory=256Mi/512Mi                                             # Records the files under pub/media in the media gallery's tables, read through the shared claim from ADR-003.
 codegeneratorProcessor           name=consumer-codegenerator                                    # Generates coupon codes in bulk for a cart price rule, from the admin.
+inventory.reservations.updateSalabilityStatus  name=consumer-inventory-salability-status   # After an order's reservations, refreshes whether each product is still salable.
+sales.rule.update.coupon.usage                                                             # Counts a cart price rule's uses after an order; coupon and customer counts are kept without it.
